@@ -1,0 +1,24 @@
+AE
+====> Epoch: 1 Average loss: 74493.8937
+====> Test set loss: 75185.0850
+
+====> Epoch: 2 Average loss: 73146.8950
+====> Test set loss: 75004.3449
+
+====> Epoch: 3 Average loss: 72990.1040
+====> Test set loss: 75022.0122
+
+====> Epoch: 4 Average loss: 72874.0706
+====> Test set loss: 74633.7861
+
+====> Epoch: 5 Average loss: 72808.3400
+====> Test set loss: 74712.6322
+
+====> Epoch: 6 Average loss: 72771.6188
+====> Test set loss: 74590.8232
+
+====> Epoch: 7 Average loss: 72738.8719
+====> Test set loss: 74658.2330
+
+====> Epoch: 8 Average loss: 72761.0392
+====> Test set loss: 74644.9420
