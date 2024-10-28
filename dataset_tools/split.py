@@ -46,7 +46,7 @@ def split_and_fuse_images(vv_dir, vh_dir, output_dir, tile_size=256):
         print(f"已处理并融合 {vv_file} 和 {vh_file}")
 
 if __name__ == "__main__":
-    vv_dir = '/home/yifan/Documents/data/forest/test/VV'
-    vh_dir = '/home/yifan/Documents/data/forest/test/VH'
-    output_dir = '/home/yifan/Documents/data/forest/test/processed'
+    vv_dir = '/home/yifan/Documents/data/forest/train/VV'
+    vh_dir = '/home/yifan/Documents/data/forest/train/VH'
+    output_dir = '/home/yifan/Documents/data/forest/train/processed'
     split_and_fuse_images(vv_dir, vh_dir, output_dir)

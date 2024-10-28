@@ -38,5 +38,5 @@ def remove_invalid_tif_files(tiff_dir):
 
 if __name__ == "__main__":
     # 需要处理的目录
-    tiff_dir = '/home/yifan/Documents/data/forest/test/processed'  # 根据你保存的文件路径进行修改
+    tiff_dir = '/home/yifan/Documents/data/forest/train/processed'  # 根据你保存的文件路径进行修改
     remove_invalid_tif_files(tiff_dir)

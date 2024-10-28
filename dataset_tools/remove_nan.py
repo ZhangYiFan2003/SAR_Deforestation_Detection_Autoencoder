@@ -31,7 +31,7 @@ def check_and_remove_nan_images(directory):
 
 if __name__ == "__main__":
     # 修改为你存储处理后 .tif 文件的文件夹路径
-    processed_directory = '/home/yifan/Documents/data/forest/test/processed'
+    processed_directory = '/home/yifan/Documents/data/forest/train/processed'
 
     # 处理 processed 文件夹
     print("正在处理 processed 文件夹...")

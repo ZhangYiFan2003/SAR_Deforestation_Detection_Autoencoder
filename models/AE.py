@@ -8,7 +8,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 import sys
 sys.path.append('../')
-from architectures import CNN_Encoder, CNN_Decoder
+from models.architectures import CNN_Encoder, CNN_Decoder
 from datasets import ProcessedForestDataLoader
 
 class Network(nn.Module):

@@ -3,10 +3,14 @@ import torch.utils.data
 from torch import nn, optim
 from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
+from pytorch_msssim import ssim, ms_ssim, SSIM  # 导入SSIM模块
 
 import sys
+import os
+import numpy as np
+
 sys.path.append('../')
-from architectures import CNN_Encoder, CNN_Decoder
+from models.architectures import CNN_Encoder, CNN_Decoder
 from datasets import ProcessedForestDataLoader
 
 class Network(nn.Module):
@@ -15,15 +19,19 @@ class Network(nn.Module):
         output_size = 512  # Intermediate feature size
         self.encoder = CNN_Encoder(output_size)
         
-        # Mapping to latent space parameters
+        # 将编码器输出映射到潜在空间的均值和方差参数
         self.fc_mu = nn.Linear(output_size, args.embedding_size)
         self.fc_var = nn.Linear(output_size, args.embedding_size)
         
+        # 初始化解码器
         self.decoder = CNN_Decoder(args.embedding_size)
 
     def encode(self, x):
-        x = self.encoder(x)  # x shape: [batch_size, 2, 256, 256]
-        return self.fc_mu(x), self.fc_var(x)
+        # 获取编码器输出和跳跃连接的特征
+        features, encoder_features = self.encoder(x)
+        mu = self.fc_mu(features)
+        logvar = self.fc_var(features)
+        return mu, logvar, encoder_features
 
     def reparameterize(self, mu, logvar):
         if self.training:
@@ -32,13 +40,52 @@ class Network(nn.Module):
             return mu + eps * std
         return mu
 
-    def decode(self, z):
-        return self.decoder(z)
+    def decode(self, z, encoder_features):
+        # 使用 z 和 encoder_features 解码
+        return self.decoder(z, encoder_features)
 
     def forward(self, x):
-        mu, logvar = self.encode(x)
+        # 编码，生成 z 及 encoder_features
+        mu, logvar, encoder_features = self.encode(x)
         z = self.reparameterize(mu, logvar)
-        return self.decode(z), mu, logvar
+        # 解码并返回重建的结果
+        return self.decode(z, encoder_features), mu, logvar
+
+class EarlyStopping:
+    def __init__(self, patience=5, delta=0, path='checkpoint.pth'):
+        self.patience = patience  # 提前停止的耐心（连续epoch验证损失未降低的最大次数）
+        self.delta = delta  # 验证损失降低的最小变化量
+        self.path = path  # 模型权重保存路径
+        self.best_score = None
+        self.early_stop = False
+        self.counter = 0  # 未改善epoch计数
+
+    def __call__(self, val_loss, model):
+        score = -val_loss  # EarlyStopping基于验证损失监测
+        
+        # 初始化最佳分数
+        if self.best_score is None:
+            self.best_score = score
+            self.save_checkpoint(val_loss, model)
+        
+        # 如果分数没有改善
+        elif score < self.best_score + self.delta:
+            self.counter += 1
+            print(f"EarlyStopping counter: {self.counter} out of {self.patience}")
+            if self.counter >= self.patience:
+                self.early_stop = True
+        
+        # 如果分数改善，重置计数并保存Checkpoint
+        else:
+            self.best_score = score
+            self.save_checkpoint(val_loss, model)
+            self.counter = 0
+
+    def save_checkpoint(self, val_loss, model):
+        '''当验证损失下降时，保存模型。'''
+        print(f'Validation loss decreased ({self.best_score:.6f} --> {val_loss:.6f}).  Saving model ...')
+        torch.save(model.state_dict(), self.path)
+
 
 class VAE(object):
     def __init__(self, args):
@@ -50,7 +97,17 @@ class VAE(object):
 
         self.model = Network(args)
         self.model.to(self.device)
-        self.optimizer = optim.Adam(self.model.parameters(), lr=1e-3)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+        
+        # 初始化学习率调度器，step_size=10表示每10个epoch学习率衰减一次，gamma=0.5表示学习率每次衰减到原来的50%
+        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=args.step_size, gamma=args.gamma)
+        
+        # EarlyStopping对象的实例化
+        self.early_stopping = EarlyStopping(patience=args.patience, delta=args.delta, path=args.results_path + '/best_model.pth')
+        
+        # 设置重构损失的类型和beta参数
+        self.reconstruction_loss_type = args.reconstruction_loss_type
+        self.beta = args.beta  # 传入自定义的beta值
         
         self.writer = SummaryWriter(log_dir=args.results_path + '/logs')
 
@@ -76,68 +133,72 @@ class VAE(object):
         return MSE + KLD, MSE, KLD
 
     def train(self, epoch):
-        self.model.train()
-        train_loss = 0
-        train_mse = 0
-        train_kld = 0
-        
-        for batch_idx, data in enumerate(self.train_loader):
-            data = data.to(self.device)
-            self.optimizer.zero_grad()
-            
-            recon_batch, mu, logvar = self.model(data)
-            loss, mse, kld = self.loss_function(recon_batch, data, mu, logvar)
-            
-            loss.backward()
-            train_loss += loss.item()
-            train_mse += mse.item()
-            train_kld += kld.item()
-            
-            self.optimizer.step()
-            
-            if batch_idx % self.args.log_interval == 0:
-                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tMSE: {:.6f}\tKLD: {:.6f}'.format(
-                    epoch, batch_idx * len(data), len(self.train_loader.dataset),
-                    100. * batch_idx / len(self.train_loader),
-                    loss.item() / len(data),
-                    mse.item() / len(data),
-                    kld.item() / len(data)))
+            self.model.train()
+            train_loss = 0
+            train_recon_loss = 0
+            train_kld_loss = 0
 
-        avg_loss = train_loss / len(self.train_loader.dataset)
-        avg_mse = train_mse / len(self.train_loader.dataset)
-        avg_kld = train_kld / len(self.train_loader.dataset)
-        
-        print('====> Epoch: {} Average loss: {:.4f}\tMSE: {:.4f}\tKLD: {:.4f}'.format(
-            epoch, avg_loss, avg_mse, avg_kld))
-        
-        # Log metrics to tensorboard
-        self.writer.add_scalar('Loss/train/total', avg_loss, epoch)
-        self.writer.add_scalar('Loss/train/mse', avg_mse, epoch)
-        self.writer.add_scalar('Loss/train/kld', avg_kld, epoch)
+            for batch_idx, data in enumerate(self.train_loader):
+                data = data.to(self.device)
+                self.optimizer.zero_grad()
+
+                # 前向传播
+                recon_batch, mu, logvar = self.model(data)
+                loss, recon_loss, kld_loss = self.loss_function(recon_batch, data, mu, logvar)
+
+                loss.backward()
+                train_loss += loss.item()
+                train_recon_loss += recon_loss.item()
+                train_kld_loss += kld_loss.item()
+
+                self.optimizer.step()
+
+                if batch_idx % self.args.log_interval == 0:
+                    print(f'Train Epoch: {epoch} [{batch_idx * len(data)}/{len(self.train_loader.dataset)} '
+                        f'({100. * batch_idx / len(self.train_loader):.0f}%)]\tLoss: {loss.item() / len(data):.6f}\t'
+                        f'Recon: {recon_loss.item() / len(data):.6f}\tKLD: {kld_loss.item() / len(data):.6f}')
+
+            avg_loss = train_loss / len(self.train_loader.dataset)
+            print(f'====> Epoch: {epoch} Average train loss: {avg_loss:.4f}')
+            
+            # 记录损失和学习率
+            self.writer.add_scalar('Loss/train', avg_loss, epoch)
+            self.writer.add_scalar('Learning Rate', self.optimizer.param_groups[0]['lr'], epoch)
+
+            # 更新学习率
+            self.scheduler.step()
 
     def test(self, epoch):
         self.model.eval()
         test_loss = 0
-        test_mse = 0
-        test_kld = 0
+        test_recon_loss = 0
+        test_kld_loss = 0
         
         with torch.no_grad():
             for data in self.test_loader:
                 data = data.to(self.device)
                 recon_batch, mu, logvar = self.model(data)
-                loss, mse, kld = self.loss_function(recon_batch, data, mu, logvar)
+                loss, recon_loss, kld_loss = self.loss_function(recon_batch, data, mu, logvar)
                 test_loss += loss.item()
-                test_mse += mse.item()
-                test_kld += kld.item()
+                test_recon_loss += recon_loss.item()
+                test_kld_loss += kld_loss.item()
 
         avg_loss = test_loss / len(self.test_loader.dataset)
-        avg_mse = test_mse / len(self.test_loader.dataset)
-        avg_kld = test_kld / len(self.test_loader.dataset)
+        avg_recon_loss = test_recon_loss / len(self.test_loader.dataset)
+        avg_kld_loss = test_kld_loss / len(self.test_loader.dataset)
         
-        print('====> Test set loss: {:.4f}\tMSE: {:.4f}\tKLD: {:.4f}'.format(
-            avg_loss, avg_mse, avg_kld))
+        print(f'====> Test set loss: {avg_loss:.4f}\tRecon: {avg_recon_loss:.4f}\tKLD: {avg_kld_loss:.4f}')
         
         # Log metrics to tensorboard
         self.writer.add_scalar('Loss/test/total', avg_loss, epoch)
-        self.writer.add_scalar('Loss/test/mse', avg_mse, epoch)
-        self.writer.add_scalar('Loss/test/kld', avg_kld, epoch)
+        self.writer.add_scalar('Loss/test/recon', avg_recon_loss, epoch)
+        self.writer.add_scalar('Loss/test/kld', avg_kld_loss, epoch)
+
+        # 调用EarlyStopping监控
+        self.early_stopping(avg_loss, self.model)
+        
+        # 若满足EarlyStopping条件，停止训练
+        if self.early_stopping.early_stop:
+            print("Early stopping")
+            return True
+        return False
