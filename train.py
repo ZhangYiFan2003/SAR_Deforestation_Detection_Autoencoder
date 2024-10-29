@@ -28,7 +28,7 @@ parser.add_argument('--embedding-size', type=int, default=32, metavar='N',
                     help='how many batches to wait before logging training status')#16, 32, 64, ...
 parser.add_argument('--results_path', type=str, default='results/', metavar='N',
                     help='Where to store images')
-parser.add_argument('--model', type=str, default='VAE', metavar='N',
+parser.add_argument('--model', type=str, default='AE', metavar='N',
                     help='Which architecture to use')
 parser.add_argument('--dataset', type=str, default='FOREST', metavar='N',
                     help='Which dataset to use')
@@ -92,7 +92,7 @@ if __name__ == "__main__":
     except (KeyboardInterrupt, SystemExit):
         print("Manual Interruption")
     
-    
+    """
     with torch.no_grad():
         # 从测试集中获取一批图像
         images = next(iter(autoenc.test_loader))  # 直接获取图像数据
@@ -132,3 +132,4 @@ if __name__ == "__main__":
         # 打印统计信息
         mean_difference = difference.mean().item()
         print(f'原始图像和重建图像的平均差异: {mean_difference:.4f}')
+        """
