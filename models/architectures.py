@@ -121,7 +121,7 @@ class CNN_Decoder(nn.Module):
         self.fusion1 = nn.Conv2d(self.channel_mult*12, self.channel_mult*4, 1)  # 256+128=384 -> 128
         self.fusion2 = nn.Conv2d(self.channel_mult*6, self.channel_mult*2, 1)   # 128+64=192 -> 64
         self.fusion3 = nn.Conv2d(self.channel_mult*3, self.channel_mult, 1)     # 64+32=96 -> 32
-        self.fusion4 = nn.Conv2d(int(self.channel_mult*1.5), self.channel_mult//2, 1) # 32+16=48 -> 16
+        #self.fusion4 = nn.Conv2d(int(self.channel_mult*1.5), self.channel_mult//2, 1) # 32+16=48 -> 16
 
     def _up_block(self, in_channels, out_channels):
         return nn.Sequential(
@@ -149,8 +149,8 @@ class CNN_Decoder(nn.Module):
         x = self.fusion3(x)                         # -> [batch, 32, 32, 32]
         
         x = self.decoder4(x)                        # -> [batch, 16, 64, 64]
-        x = torch.cat([x, encoder_features[3]], 1)  # -> [batch, 48, 64, 64]
-        x = self.fusion4(x)                         # -> [batch, 16, 64, 64]
+        #x = torch.cat([x, encoder_features[3]], 1)  # -> [batch, 48, 64, 64]
+        #x = self.fusion4(x)                         # -> [batch, 16, 64, 64]
         
         x = self.decoder5(x)                       # -> [batch, 16, 128, 128]
         
