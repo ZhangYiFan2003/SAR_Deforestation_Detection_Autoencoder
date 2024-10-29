@@ -109,8 +109,7 @@ class CNN_Decoder(nn.Module):
         self.decoder2 = self._up_block(self.channel_mult*4, self.channel_mult*2)  # 128 -> 64
         self.decoder3 = self._up_block(self.channel_mult*2, self.channel_mult)    # 64 -> 32
         self.decoder4 = self._up_block(self.channel_mult, self.channel_mult//2)   # 32 -> 16
-        
-        self.pre_final = nn.ConvTranspose2d(self.channel_mult // 2, self.channel_mult // 2, kernel_size=4, stride=2, padding=1)
+        self.decoder5 = self._up_block(self.channel_mult // 2, self.channel_mult // 2)
         
         # Final output layer
         self.final = nn.Sequential(
@@ -153,7 +152,8 @@ class CNN_Decoder(nn.Module):
         x = torch.cat([x, encoder_features[3]], 1)  # -> [batch, 48, 64, 64]
         x = self.fusion4(x)                         # -> [batch, 16, 64, 64]
         
-        x = self.pre_final(x)                       # -> [batch, 16, 128, 128]
+        x = self.decoder5(x)                       # -> [batch, 16, 128, 128]
+        
         x = self.final(x)                           # -> [batch, 2, 256, 256]
         return x
 
