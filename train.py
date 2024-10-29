@@ -28,7 +28,7 @@ parser.add_argument('--embedding-size', type=int, default=32, metavar='N',
                     help='how many batches to wait before logging training status')#16, 32, 64, ...
 parser.add_argument('--results_path', type=str, default='results/', metavar='N',
                     help='Where to store images')
-parser.add_argument('--model', type=str, default='AE', metavar='N',
+parser.add_argument('--model', type=str, default='VAE', metavar='N',
                     help='Which architecture to use')
 parser.add_argument('--dataset', type=str, default='FOREST', metavar='N',
                     help='Which dataset to use')
@@ -92,44 +92,39 @@ if __name__ == "__main__":
     except (KeyboardInterrupt, SystemExit):
         print("Manual Interruption")
     
-    """
     with torch.no_grad():
-        # 从测试集中获取一批图像
-        images = next(iter(autoenc.test_loader))  # 直接获取图像数据
-        if isinstance(images, tuple):  # 如果返回的是tuple，只取第一个元素（图像数据）
-            images = images[0]
-        images = images.to(autoenc.device)
-        
+        # 从测试集中获取一个图像
+        single_image = next(iter(autoenc.test_loader))[0]  # 直接获取第一个图像数据
+        if isinstance(single_image, tuple):  # 如果返回的是tuple，只取第一个元素（图像数据）
+            single_image = single_image[0]
+        single_image = single_image.unsqueeze(0).to(autoenc.device)  # 添加batch维度以适应模型输入
+
         # 对于VAE模型，需要特别处理
         if args.model == 'VAE':
-            recon_images, _, _ = autoenc.model(images)  # VAE返回重建图像、均值和方差
+            recon_image, _, _ = autoenc.model(single_image)  # VAE返回重建图像、均值和方差
         else:
-            recon_images = autoenc.model(images)  # AE只返回重建图像
-        
+            recon_image = autoenc.model(single_image)  # AE只返回重建图像
+
         # 确保结果保存目录存在
         if not os.path.exists(args.results_path):
             os.makedirs(args.results_path)
-        
+
         # 保存原始图像
-        for i, img in enumerate(images):
-            img_np = img.cpu().numpy()
-            save_path = os.path.join(args.results_path, f'original_image_{i}.tif')
-            tiff.imwrite(save_path, img_np)
-        
+        img_np = single_image.cpu().squeeze().numpy()
+        save_path = os.path.join(args.results_path, 'original_image.tif')
+        tiff.imwrite(save_path, img_np)
+
         # 保存重建图像
-        for i, recon_img in enumerate(recon_images):
-            recon_img_np = recon_img.cpu().numpy()
-            save_path = os.path.join(args.results_path, f'reconstructed_image_{i}.tif')
-            tiff.imwrite(save_path, recon_img_np)
-        
+        recon_img_np = recon_image.cpu().squeeze().numpy()
+        save_path = os.path.join(args.results_path, 'reconstructed_image.tif')
+        tiff.imwrite(save_path, recon_img_np)
+
         # 计算和保存差异图像
-        difference = torch.abs(images - recon_images)
-        for i, diff_img in enumerate(difference):
-            diff_img_np = diff_img.cpu().numpy()
-            save_path = os.path.join(args.results_path, f'difference_image_{i}.tif')
-            tiff.imwrite(save_path, diff_img_np)
-        
+        difference = torch.abs(single_image - recon_image)
+        diff_img_np = difference.cpu().squeeze().numpy()
+        save_path = os.path.join(args.results_path, 'difference_image.tif')
+        tiff.imwrite(save_path, diff_img_np)
+
         # 打印统计信息
         mean_difference = difference.mean().item()
         print(f'原始图像和重建图像的平均差异: {mean_difference:.4f}')
-        """

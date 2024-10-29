@@ -117,7 +117,7 @@ class VAE(object):
         else:
             print(f"Dataset not supported : {self.args.dataset}")
             sys.exit()
-
+    """
     def loss_function(self, recon_x, x, mu, logvar):
         # Reshape tensors for reconstruction loss
         recon_x = recon_x.view(-1, 2 * 256 * 256)
@@ -131,6 +131,47 @@ class VAE(object):
         
         # Total loss is the sum of reconstruction loss and KL divergence
         return MSE + KLD, MSE, KLD
+    """
+    
+    def loss_function(self, recon_x, x, mu, logvar, sparsity_weight=0.001, max_value=10):
+        """
+        计算自编码器的损失，包括MSE重构损失、KL散度和稀疏重构损失。
+        在计算过程中，检查并限制输入值的范围，以避免NaN或数值不稳定的情况。
+
+        参数:
+        - recon_x: 重构图像
+        - x: 原始输入图像
+        - mu: 潜在变量的均值
+        - logvar: 潜在变量的log方差
+        - sparsity_weight: 稀疏性损失的权重（默认为0.001，可根据需要调整）
+        - max_value: 限制重构图像和原始图像值范围的最大值
+
+        返回:
+        - total_loss: 总损失
+        - MSE: 重构损失
+        - KLD: KL散度损失
+        - sparse_loss: 稀疏性损失
+        """
+
+        # 1. 将重构图像和原始图像的值裁剪在合理范围内，避免极端值导致不稳定性
+        recon_x = torch.clamp(recon_x, -max_value, max_value).view(-1, 2 * 256 * 256)
+        x = torch.clamp(x, -max_value, max_value).view(-1, 2 * 256 * 256)
+
+        # 2. MSE重构损失
+        MSE = F.mse_loss(recon_x, x, reduction='sum')
+
+        # 3. 稀疏性惩罚（L1正则化）
+        sparse_penalty = torch.sum(torch.abs(recon_x))
+        sparse_loss = sparsity_weight * sparse_penalty  # 适当调节权重
+
+        # 4. 对logvar进行裁剪，避免过大或过小值导致数值不稳定
+        logvar = torch.clamp(logvar, min=-10, max=10)
+        KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+
+        # 合并损失
+        total_loss = MSE + KLD + sparse_loss
+
+        return total_loss, MSE, KLD
 
     def train(self, epoch):
             self.model.train()
