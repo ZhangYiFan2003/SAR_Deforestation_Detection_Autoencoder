@@ -36,10 +36,6 @@ parser.add_argument('--lr', type=float, default=5e-3,
                     help='Learning rate for the optimizer')
 parser.add_argument('--weight_decay', type=float, default=1e-4, 
                     help='Weight decay for the optimizer')
-parser.add_argument('--reconstruction_loss_type', type=str, default='MSE', choices=['MSE', 'SSIM', 'Hybrid'],
-                    help='Type of reconstruction loss to use: MSE, SSIM, or Hybrid')
-parser.add_argument('--beta', type=float, default=0.1, metavar='B',
-                    help='Weight for KL divergence in the VAE loss function (default: 1.0)')  # 添加beta参数
 parser.add_argument('--step_size', type=int, default=3, 
                     help='Step size for learning rate scheduler')
 parser.add_argument('--gamma', type=float, default=0.3, 

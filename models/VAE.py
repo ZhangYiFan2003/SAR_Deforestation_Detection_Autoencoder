@@ -105,10 +105,6 @@ class VAE(object):
         # EarlyStopping对象的实例化
         self.early_stopping = EarlyStopping(patience=args.patience, delta=args.delta, path=args.results_path + '/best_model.pth')
         
-        # 设置重构损失的类型和beta参数
-        self.reconstruction_loss_type = args.reconstruction_loss_type
-        self.beta = args.beta  # 传入自定义的beta值
-        
         self.writer = SummaryWriter(log_dir=args.results_path + '/logs')
 
     def _init_dataset(self):
