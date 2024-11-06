@@ -36,7 +36,7 @@ class CNN_Encoder(nn.Module):
     def __init__(self, output_size, input_size=(2, 256, 256)):
         super(CNN_Encoder, self).__init__()
         self.input_size = input_size
-        self.channel_mult = 32  
+        self.channel_mult = 64  
 
         # Input layer: 2 -> 32 channels, size: 256x256 -> 128x128
         self.initial = nn.Sequential(
@@ -96,7 +96,7 @@ class CNN_Decoder(nn.Module):
     def __init__(self, embedding_size, input_size=(2, 256, 256)):
         super(CNN_Decoder, self).__init__()
         self.input_dim = embedding_size
-        self.channel_mult = 32  
+        self.channel_mult = 64  
         
         # Fully connected layer: embedding_size -> 256*4*4
         self.fc = nn.Sequential(
@@ -127,7 +127,8 @@ class CNN_Decoder(nn.Module):
         return nn.Sequential(
             nn.ConvTranspose2d(in_channels, out_channels, 4, 2, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.LeakyReLU(negative_slope=0.01, inplace=True)
+            nn.LeakyReLU(negative_slope=0.01, inplace=True),
+            nn.Dropout(p=0.3)
         )
 
     def forward(self, x, encoder_features):

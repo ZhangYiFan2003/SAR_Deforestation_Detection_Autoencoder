@@ -196,7 +196,9 @@ class VAE(object):
                         f'Recon: {recon_loss.item() / len(data):.6f}\tKLD: {kld_loss.item() / len(data):.6f}')
 
             avg_loss = train_loss / len(self.train_loader.dataset)
+            avg_mse_loss = train_recon_loss / len(self.train_loader.dataset)
             print(f'====> Epoch: {epoch} Average train loss: {avg_loss:.4f}')
+            print(f'====> Epoch: {epoch} Average train mse loss: {avg_mse_loss:.4f}')
             
             # 记录损失和学习率
             self.writer.add_scalar('Loss/train', avg_loss, epoch)

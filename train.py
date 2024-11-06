@@ -14,25 +14,25 @@ from utils import get_interpolations
 
 parser = argparse.ArgumentParser(
         description='Main function to call training for different AutoEncoders')
-parser.add_argument('--batch-size', type=int, default=32, metavar='N',
+parser.add_argument('--batch-size', type=int, default=8, metavar='N',
                     help='input batch size for training (default: 128)')
-parser.add_argument('--epochs', type=int, default=20, metavar='N',
+parser.add_argument('--epochs', type=int, default=15, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='enables CUDA training')
 parser.add_argument('--seed', type=int, default=42, metavar='S',
-                    help='random seed (default: 1)')
+                    help='random seed (default: 42)')
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
-parser.add_argument('--embedding-size', type=int, default=32, metavar='N',
+parser.add_argument('--embedding-size', type=int, default=128, metavar='N',
                     help='how many batches to wait before logging training status')#16, 32, 64, ...
 parser.add_argument('--results_path', type=str, default='results/', metavar='N',
                     help='Where to store images')
-parser.add_argument('--model', type=str, default='VAE', metavar='N',
+parser.add_argument('--model', type=str, default='AE', metavar='N',
                     help='Which architecture to use')
 parser.add_argument('--dataset', type=str, default='FOREST', metavar='N',
                     help='Which dataset to use')
-parser.add_argument('--lr', type=float, default=5e-3, 
+parser.add_argument('--lr', type=float, default=1e-3, 
                     help='Learning rate for the optimizer')
 parser.add_argument('--weight_decay', type=float, default=1e-4, 
                     help='Weight decay for the optimizer')
@@ -40,7 +40,7 @@ parser.add_argument('--step_size', type=int, default=3,
                     help='Step size for learning rate scheduler')
 parser.add_argument('--gamma', type=float, default=0.3, 
                     help='Gamma for learning rate scheduler')
-parser.add_argument('--patience', type=int, default=5, 
+parser.add_argument('--patience', type=int, default=10, 
                     help='Patience for early stopping')
 parser.add_argument('--delta', type=float, default=0.01, 
                     help='Minimum change to qualify as improvement for early stopping')
@@ -79,16 +79,44 @@ if __name__ == "__main__":
         
         for epoch in range(1, args.epochs + 1):
             autoenc.train(epoch)
-            autoenc.test(epoch)
+            should_stop = autoenc.test(epoch)  # 测试并检查EarlyStopping
+            
+            # 检查EarlyStopping条件
+            if should_stop:
+                print("Early stopping triggered. Training terminated.")
+                break  # 提前结束训练
             
             # 保存模型权重
             save_path = os.path.join(args.results_path, f'{args.model}_epoch_{epoch}.pth')
             torch.save(autoenc.model.state_dict(), save_path)
             print(f'Model weights saved at {save_path}')
+        
+        # 训练结束后，计算误差阈值
+        threshold = autoenc.calculate_threshold()
+        print(f"Calculated Threshold for Anomaly Detection: {threshold:.4f}")
+        
     except (KeyboardInterrupt, SystemExit):
         print("Manual Interruption")
     
     with torch.no_grad():
+        
+        # Training结束后导出模型
+        print("Exporting model after training completion...")
+        
+        """
+        # 导出为 ONNX 格式
+        onnx_save_path = os.path.join(args.results_path, f'{args.model}_final.onnx')
+        dummy_input = torch.randn(1, 2, 256, 256).to(autoenc.device)  # 根据模型的输入维度调整
+        torch.onnx.export(autoenc.model, dummy_input, onnx_save_path, verbose=True)
+        print(f'Model saved in ONNX format at {onnx_save_path}')
+        """
+        # 导出为 TorchScript 格式
+        dummy_input = torch.randn(1, 2, 256, 256).to(autoenc.device)  # 根据模型的输入维度调整
+        script_save_path = os.path.join(args.results_path, f'{args.model}_final.pt')
+        traced_script_module = torch.jit.trace(autoenc.model, dummy_input)
+        traced_script_module.save(script_save_path)
+        print(f'Model saved in TorchScript format at {script_save_path}')
+
         # 从测试集中获取一个图像
         single_image = next(iter(autoenc.test_loader))[0]  # 直接获取第一个图像数据
         if isinstance(single_image, tuple):  # 如果返回的是tuple，只取第一个元素（图像数据）
