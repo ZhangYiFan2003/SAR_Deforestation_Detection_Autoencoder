@@ -16,7 +16,7 @@ parser = argparse.ArgumentParser(
         description='Main function to call training for different AutoEncoders')
 parser.add_argument('--batch-size', type=int, default=8, metavar='N',
                     help='input batch size for training (default: 128)')
-parser.add_argument('--epochs', type=int, default=15, metavar='N',
+parser.add_argument('--epochs', type=int, default=10, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='enables CUDA training')
@@ -37,9 +37,11 @@ parser.add_argument('--lr', type=float, default=1e-3,
 parser.add_argument('--weight_decay', type=float, default=1e-4, 
                     help='Weight decay for the optimizer')
 parser.add_argument('--step_size', type=int, default=3, 
-                    help='Step size for learning rate scheduler')
+                    help='Step size for learning rate scheduler StepLR')
 parser.add_argument('--gamma', type=float, default=0.3, 
-                    help='Gamma for learning rate scheduler')
+                    help='Gamma for learning rate scheduler StepLR')
+parser.add_argument('--eta_min', type=float, default=1e-5,
+                    help='Minimum learning rate in scheduler CosineAnnealingLR')
 parser.add_argument('--patience', type=int, default=10, 
                     help='Patience for early stopping')
 parser.add_argument('--delta', type=float, default=0.01, 
@@ -87,18 +89,21 @@ if __name__ == "__main__":
                 break  # 提前结束训练
             
             # 保存模型权重
+            """
             save_path = os.path.join(args.results_path, f'{args.model}_epoch_{epoch}.pth')
             torch.save(autoenc.model.state_dict(), save_path)
             print(f'Model weights saved at {save_path}')
+            """
         
-        # 训练结束后，计算误差阈值
-        threshold = autoenc.calculate_threshold()
-        print(f"Calculated Threshold for Anomaly Detection: {threshold:.4f}")
         
     except (KeyboardInterrupt, SystemExit):
         print("Manual Interruption")
     
     with torch.no_grad():
+        # 设置模型为评估模式
+        autoenc.model.eval()
+        
+        autoenc.loss_analysis.calculate_pixelwise_threshold()
         
         # Training结束后导出模型
         print("Exporting model after training completion...")

@@ -1,16 +1,14 @@
+import sys
 import torch
 import torch.utils.data
 from torch import nn, optim
 from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
 
-import sys
-import os
-import numpy as np
-
 sys.path.append('../')
 from models.architectures import CNN_Encoder, CNN_Decoder
 from datasets import ProcessedForestDataLoader
+from loss_distribution.loss_distribution_analyse import LossDistributionAnalysis
 
 class AE_Network(nn.Module):
     def __init__(self, args):
@@ -68,48 +66,44 @@ class AE(object):
         self._init_dataset()
         self.train_loader = self.data.train_loader
         self.test_loader = self.data.test_loader
-
+        
         self.model = AE_Network(args)
         self.model.to(self.device)
-        self.optimizer = optim.Adam(self.model.parameters(), lr=args.lr)
         
+        """
+        self.optimizer = optim.AdamW(self.model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=args.epochs, eta_min=args.eta_min)
+        """
+        
+        self.optimizer = optim.Adam(self.model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=args.step_size, gamma=args.gamma)
+        
         self.early_stopping = EarlyStopping(patience=args.patience, delta=args.delta, path=args.results_path + '/best_model.pth')
         
         self.writer = SummaryWriter(log_dir=args.results_path + '/logs')
         
-        # 用于存储每个图像的MSE误差
-        self.train_losses = []
-        self.test_losses = []
-
+        # 初始化 LossDistributionAnalysis 实例
+        self.loss_analysis = LossDistributionAnalysis(
+            model=self.model,
+            train_loader=self.train_loader,
+            test_loader=self.test_loader,
+            device=self.device,
+            args=args
+        )
+    
     def _init_dataset(self):
         if self.args.dataset == 'FOREST':
             self.data = ProcessedForestDataLoader(self.args)
         else:
             print(f"Dataset not supported: {self.args.dataset}")
             sys.exit()
-
+    
     def loss_function(self, recon_x, x):
         recon_x = recon_x.view(-1, 2 * 256 * 256)
         x = x.view(-1, 2 * 256 * 256)
         MSE = F.mse_loss(recon_x, x, reduction='sum')
         return MSE
     
-    def calculate_threshold(self):
-        # 计算训练和测试误差的均值和标准差
-        all_losses = np.array(self.train_losses + self.test_losses)
-        mean_loss = np.mean(all_losses)
-        std_loss = np.std(all_losses)
-
-        # 设定95%置信区间的阈值
-        threshold = mean_loss + 1.96 * std_loss
-        print(f"Calculated Threshold (95% CI): {threshold:.4f}")
-        
-        # 可视化误差分布
-        self.writer.add_histogram('Loss_Distribution', all_losses, global_step=0)
-        
-        return threshold
-
     def train(self, epoch):
         self.model.train()
         train_loss = 0
@@ -131,49 +125,29 @@ class AE(object):
         
         self.writer.add_scalar('Loss/train', avg_loss, epoch)
         self.scheduler.step()
-
+        
+        self.loss_analysis.calculate_pixelwise_loss_distribution(self.train_loader, 'Train', epoch)
+        
+        self.writer.flush()
+    
     def test(self, epoch):
         self.model.eval()
         test_loss = 0
-        pixel_losses = []  # 用于存储每个像素的重构误差
         with torch.no_grad():
             for data in self.test_loader:
                 data = data.to(self.device)
                 recon_batch = self.model(data)
-                
-                # 计算逐像素的MSE误差
-                pixel_loss = F.mse_loss(recon_batch, data, reduction='none')  # 不求和，以保留每个像素的误差
-                pixel_loss = pixel_loss.view(-1, 2, 256, 256)  # 恢复为图像形状 (batch, channels, height, width)
-                pixel_losses.append(pixel_loss.cpu().numpy())  # 将误差转到CPU并存储
-                
-                # 计算单个批次的总误差
-                batch_loss = pixel_loss.sum().item()  # 总和的MSE
-                test_loss += batch_loss
-                
-                # 每批次的平均误差
-                avg_batch_loss = batch_loss / len(data)
-                self.test_losses.append(avg_batch_loss)
+                test_loss += self.loss_function(recon_batch, data).item()
 
         avg_test_loss = test_loss / len(self.test_loader.dataset)
         print(f'====> Test set loss: {avg_test_loss:.4f}')
         
-        # 记录平均测试损失
         self.writer.add_scalar('Loss/test', avg_test_loss, epoch)
         
-        # 将像素误差转化为单个数组以计算阈值
-        pixel_losses = np.concatenate(pixel_losses, axis=0)  # 合并所有批次的像素误差
-        pixel_mean = np.mean(pixel_losses, axis=0)  # 计算每个像素位置的均值
-        pixel_std = np.std(pixel_losses, axis=0)    # 计算每个像素位置的标准差
+        self.loss_analysis.calculate_pixelwise_loss_distribution(self.test_loader, 'Test', epoch)
         
-        # 设置95%置信区间的阈值
-        confidence_interval = 1.96  # 对应95%的置信水平
-        threshold_map = pixel_mean + confidence_interval * pixel_std  # 每个像素位置的阈值
-
-        # 可视化每个像素的误差分布
-        self.writer.add_image('Pixelwise_Loss_Mean', torch.tensor(pixel_mean), epoch, dataformats='CHW')
-        self.writer.add_image('Pixelwise_Loss_Threshold', torch.tensor(threshold_map), epoch, dataformats='CHW')
+        self.writer.flush()
         
-        # Early Stopping Check
         self.early_stopping(avg_test_loss, self.model)
         if self.early_stopping.early_stop:
             print("Early stopping")

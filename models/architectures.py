@@ -54,14 +54,27 @@ class CNN_Encoder(nn.Module):
         # encoder4: 128 -> 256 channels, size: 16x16 -> 8x8
         self.encoder4 = self._make_layer(self.channel_mult*4, self.channel_mult*8, 2)  
 
+        
         # Pyramid Pooling Module (PPM)
         self.ppm = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
             nn.Conv2d(self.channel_mult*8, self.channel_mult*8, kernel_size=1),
             nn.LeakyReLU(negative_slope=0.01, inplace=True)
         )
-
+        """
+        # 修改后的PPM模块，包含多个不同尺度的自适应平均池化
+        self.ppm = nn.ModuleList([
+            nn.Sequential(
+                nn.AdaptiveAvgPool2d(output_size),  # 不同的池化尺度
+                nn.Conv2d(self.channel_mult*8, self.channel_mult*8, kernel_size=1),
+                nn.LeakyReLU(negative_slope=0.01, inplace=True)
+            )
+            for output_size in [1, 2, 4]  # 池化尺寸为[1, 2, 4]
+        ])
+        """
+        
         self.avgpool = nn.AdaptiveAvgPool2d(1)
+        #self.final_conv = nn.Conv2d(self.channel_mult*8 * 4, self.channel_mult*8, kernel_size=1)
         self.fc = nn.Linear(self.channel_mult*8, output_size)
 
     def _make_layer(self, in_channels, out_channels, blocks):
@@ -128,7 +141,6 @@ class CNN_Decoder(nn.Module):
             nn.ConvTranspose2d(in_channels, out_channels, 4, 2, 1, bias=False),
             nn.BatchNorm2d(out_channels),
             nn.LeakyReLU(negative_slope=0.01, inplace=True),
-            nn.Dropout(p=0.3)
         )
 
     def forward(self, x, encoder_features):
