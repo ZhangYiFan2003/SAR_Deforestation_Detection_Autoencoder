@@ -62,9 +62,11 @@ class ProcessedForestDataLoader(object):
     def __init__(self, args):
         kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
 
-        # 图像的基本转换操作
+        # 定义数据增强转换
         transform = transforms.Compose([
-            # 在加载时已归一化，因此不需要额外的 Normalize 操作
+            #transforms.RandomHorizontalFlip(),                     # 随机水平翻转
+            #transforms.RandomVerticalFlip(),                       # 随机垂直翻转
+            #transforms.RandomRotation(90),                         # 随机旋转90度倍数
         ])
 
         self.train_loader = DataLoader(

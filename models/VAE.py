@@ -12,6 +12,8 @@ import numpy as np
 sys.path.append('../')
 from models.architectures import CNN_Encoder, CNN_Decoder
 from datasets import ProcessedForestDataLoader
+from loss_distribution.loss_distribution_analyse import LossDistributionAnalysis
+from early_stop.early_stopping import EarlyStopping
 
 class Network(nn.Module):
     def __init__(self, args):
@@ -51,42 +53,6 @@ class Network(nn.Module):
         # 解码并返回重建的结果
         return self.decode(z, encoder_features), mu, logvar
 
-class EarlyStopping:
-    def __init__(self, patience=5, delta=0, path='checkpoint.pth'):
-        self.patience = patience  # 提前停止的耐心（连续epoch验证损失未降低的最大次数）
-        self.delta = delta  # 验证损失降低的最小变化量
-        self.path = path  # 模型权重保存路径
-        self.best_score = None
-        self.early_stop = False
-        self.counter = 0  # 未改善epoch计数
-
-    def __call__(self, val_loss, model):
-        score = -val_loss  # EarlyStopping基于验证损失监测
-        
-        # 初始化最佳分数
-        if self.best_score is None:
-            self.best_score = score
-            self.save_checkpoint(val_loss, model)
-        
-        # 如果分数没有改善
-        elif score < self.best_score + self.delta:
-            self.counter += 1
-            print(f"EarlyStopping counter: {self.counter} out of {self.patience}")
-            if self.counter >= self.patience:
-                self.early_stop = True
-        
-        # 如果分数改善，重置计数并保存Checkpoint
-        else:
-            self.best_score = score
-            self.save_checkpoint(val_loss, model)
-            self.counter = 0
-
-    def save_checkpoint(self, val_loss, model):
-        '''当验证损失下降时，保存模型。'''
-        print(f'Validation loss decreased ({self.best_score:.6f} --> {val_loss:.6f}).  Saving model ...')
-        torch.save(model.state_dict(), self.path)
-
-
 class VAE(object):
     def __init__(self, args):
         self.args = args
@@ -106,6 +72,14 @@ class VAE(object):
         self.early_stopping = EarlyStopping(patience=args.patience, delta=args.delta, path=args.results_path + '/best_model.pth')
         
         self.writer = SummaryWriter(log_dir=args.results_path + '/logs')
+        
+        self.loss_analysis = LossDistributionAnalysis(
+            model=self.model,
+            train_loader=self.train_loader,
+            test_loader=self.test_loader,
+            device=self.device,
+            args=args
+        )
 
     def _init_dataset(self):
         if self.args.dataset == 'FOREST':

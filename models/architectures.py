@@ -38,44 +38,37 @@ class CNN_Encoder(nn.Module):
         self.input_size = input_size
         self.channel_mult = 64  
 
-        # Input layer: 2 -> 32 channels, size: 256x256 -> 128x128
+        # 输入层: 2 -> 32 channels, 尺寸: 256x256 -> 128x128
         self.initial = nn.Sequential(
             nn.Conv2d(2, self.channel_mult, kernel_size=7, stride=2, padding=3),
             nn.BatchNorm2d(self.channel_mult),
             nn.LeakyReLU(negative_slope=0.01, inplace=True)
         )
 
-        # encoder1: 32 -> 32 channels, size: 128x128 -> 64x64
+        # encoder1: 32 -> 32 channels, 尺寸: 128x128 -> 64x64
         self.encoder1 = self._make_layer(self.channel_mult, self.channel_mult, 2)  
-        # encoder2: 32 -> 64 channels, size: 64x64 -> 32x32
-        self.encoder2 = self._make_layer(self.channel_mult, self.channel_mult*2, 2)  
-        # encoder3: 64 -> 128 channels, size: 32x32 -> 16x16
-        self.encoder3 = self._make_layer(self.channel_mult*2, self.channel_mult*4, 2)  
-        # encoder4: 128 -> 256 channels, size: 16x16 -> 8x8
-        self.encoder4 = self._make_layer(self.channel_mult*4, self.channel_mult*8, 2)  
+        # encoder2: 32 -> 64 channels, 尺寸: 64x64 -> 32x32
+        self.encoder2 = self._make_layer(self.channel_mult, self.channel_mult * 2, 2)  
+        # encoder3: 64 -> 128 channels, 尺寸: 32x32 -> 16x16
+        self.encoder3 = self._make_layer(self.channel_mult * 2, self.channel_mult * 4, 2)  
+        # encoder4: 128 -> 256 channels, 尺寸: 16x16 -> 8x8
+        self.encoder4 = self._make_layer(self.channel_mult * 4, self.channel_mult * 8, 2)  
+        # encoder5: 256 -> 256 channels, 尺寸: 8x8 -> 8x8 (保持分辨率)
+        self.encoder5 = nn.Sequential(
+            nn.Conv2d(self.channel_mult * 8, self.channel_mult * 8, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(self.channel_mult * 8),
+            nn.LeakyReLU(negative_slope=0.01, inplace=True)
+        )
 
-        
         # Pyramid Pooling Module (PPM)
         self.ppm = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(self.channel_mult*8, self.channel_mult*8, kernel_size=1),
+            nn.Conv2d(self.channel_mult * 8, self.channel_mult * 8, kernel_size=1),
             nn.LeakyReLU(negative_slope=0.01, inplace=True)
         )
-        """
-        # 修改后的PPM模块，包含多个不同尺度的自适应平均池化
-        self.ppm = nn.ModuleList([
-            nn.Sequential(
-                nn.AdaptiveAvgPool2d(output_size),  # 不同的池化尺度
-                nn.Conv2d(self.channel_mult*8, self.channel_mult*8, kernel_size=1),
-                nn.LeakyReLU(negative_slope=0.01, inplace=True)
-            )
-            for output_size in [1, 2, 4]  # 池化尺寸为[1, 2, 4]
-        ])
-        """
-        
+
         self.avgpool = nn.AdaptiveAvgPool2d(1)
-        #self.final_conv = nn.Conv2d(self.channel_mult*8 * 4, self.channel_mult*8, kernel_size=1)
-        self.fc = nn.Linear(self.channel_mult*8, output_size)
+        self.fc = nn.Linear(self.channel_mult * 8, output_size)
 
     def _make_layer(self, in_channels, out_channels, blocks):
         layers = []
@@ -100,10 +93,11 @@ class CNN_Encoder(nn.Module):
         x2 = self.encoder2(x1)       # -> [batch, 64, 32, 32]
         x3 = self.encoder3(x2)       # -> [batch, 128, 16, 16]
         x4 = self.encoder4(x3)       # -> [batch, 256, 8, 8]
-        x = self.ppm(x4)             # -> [batch, 256, 1, 1]
+        x5 = self.encoder5(x4)       # -> [batch, 256, 8, 8]
+        x = self.ppm(x5)             # -> [batch, 256, 1, 1]
         x = torch.flatten(x, 1)      # -> [batch, 256]
         x = self.fc(x)               # -> [batch, output_size]
-        return x, [x4, x3, x2, x1]   # Return encoded features and feature maps
+        return x, [x5, x3, x2, x1]   # 返回编码特征和特征图
 
 class CNN_Decoder(nn.Module):
     def __init__(self, embedding_size, input_size=(2, 256, 256)):
@@ -134,7 +128,6 @@ class CNN_Decoder(nn.Module):
         self.fusion1 = nn.Conv2d(self.channel_mult*12, self.channel_mult*4, 1)  # 256+128=384 -> 128
         self.fusion2 = nn.Conv2d(self.channel_mult*6, self.channel_mult*2, 1)   # 128+64=192 -> 64
         self.fusion3 = nn.Conv2d(self.channel_mult*3, self.channel_mult, 1)     # 64+32=96 -> 32
-        #self.fusion4 = nn.Conv2d(int(self.channel_mult*1.5), self.channel_mult//2, 1) # 32+16=48 -> 16
 
     def _up_block(self, in_channels, out_channels):
         return nn.Sequential(
@@ -162,8 +155,6 @@ class CNN_Decoder(nn.Module):
         x = self.fusion3(x)                         # -> [batch, 32, 32, 32]
         
         x = self.decoder4(x)                        # -> [batch, 16, 64, 64]
-        #x = torch.cat([x, encoder_features[3]], 1)  # -> [batch, 48, 64, 64]
-        #x = self.fusion4(x)                         # -> [batch, 16, 64, 64]
         
         x = self.decoder5(x)                       # -> [batch, 16, 128, 128]
         

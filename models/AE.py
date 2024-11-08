@@ -9,6 +9,7 @@ sys.path.append('../')
 from models.architectures import CNN_Encoder, CNN_Decoder
 from datasets import ProcessedForestDataLoader
 from loss_distribution.loss_distribution_analyse import LossDistributionAnalysis
+from early_stop.early_stopping import EarlyStopping
 
 class AE_Network(nn.Module):
     def __init__(self, args):
@@ -30,34 +31,6 @@ class AE_Network(nn.Module):
         # Encode, generate latent representation and decode it
         features, encoder_features = self.encode(x)
         return self.decode(features, encoder_features)
-
-class EarlyStopping:
-    def __init__(self, patience=5, delta=0, path='checkpoint.pth'):
-        self.patience = patience
-        self.delta = delta
-        self.path = path
-        self.best_score = None
-        self.early_stop = False
-        self.counter = 0
-
-    def __call__(self, val_loss, model):
-        score = -val_loss
-        if self.best_score is None:
-            self.best_score = score
-            self.save_checkpoint(val_loss, model)
-        elif score < self.best_score + self.delta:
-            self.counter += 1
-            print(f"EarlyStopping counter: {self.counter} out of {self.patience}")
-            if self.counter >= self.patience:
-                self.early_stop = True
-        else:
-            self.best_score = score
-            self.save_checkpoint(val_loss, model)
-            self.counter = 0
-
-    def save_checkpoint(self, val_loss, model):
-        print(f'Validation loss decreased ({self.best_score:.6f} --> {val_loss:.6f}). Saving model ...')
-        torch.save(model.state_dict(), self.path)
 
 class AE(object):
     def __init__(self, args):
@@ -126,7 +99,7 @@ class AE(object):
         self.writer.add_scalar('Loss/train', avg_loss, epoch)
         self.scheduler.step()
         
-        self.loss_analysis.calculate_pixelwise_loss_distribution(self.train_loader, 'Train', epoch)
+        #self.loss_analysis.calculate_pixelwise_loss_distribution(self.train_loader, 'Train', epoch)
         
         self.writer.flush()
     
@@ -144,7 +117,7 @@ class AE(object):
         
         self.writer.add_scalar('Loss/test', avg_test_loss, epoch)
         
-        self.loss_analysis.calculate_pixelwise_loss_distribution(self.test_loader, 'Test', epoch)
+        #self.loss_analysis.calculate_pixelwise_loss_distribution(self.test_loader, 'Test', epoch)
         
         self.writer.flush()
         

@@ -16,7 +16,7 @@ parser = argparse.ArgumentParser(
         description='Main function to call training for different AutoEncoders')
 parser.add_argument('--batch-size', type=int, default=8, metavar='N',
                     help='input batch size for training (default: 128)')
-parser.add_argument('--epochs', type=int, default=10, metavar='N',
+parser.add_argument('--epochs', type=int, default=20, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='enables CUDA training')
@@ -36,7 +36,7 @@ parser.add_argument('--lr', type=float, default=1e-3,
                     help='Learning rate for the optimizer')
 parser.add_argument('--weight_decay', type=float, default=1e-4, 
                     help='Weight decay for the optimizer')
-parser.add_argument('--step_size', type=int, default=3, 
+parser.add_argument('--step_size', type=int, default=5, 
                     help='Step size for learning rate scheduler StepLR')
 parser.add_argument('--gamma', type=float, default=0.3, 
                     help='Gamma for learning rate scheduler StepLR')
