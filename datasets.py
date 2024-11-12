@@ -73,6 +73,11 @@ class ProcessedForestDataLoader(object):
             ProcessedForestDataset(root_dir='/home/yifan/Documents/data/forest/train/processed', transform=transform),
             batch_size=args.batch_size, shuffle=True, **kwargs)
 
+        self.validation_loader = DataLoader(
+            ProcessedForestDataset(root_dir='/home/yifan/Documents/data/forest/validation/processed', transform=transform),
+            batch_size=args.batch_size, shuffle=False, **kwargs)
+        
+        # 添加一个新的测试数据加载器，用于加载包含砍伐区域的图像
         self.test_loader = DataLoader(
             ProcessedForestDataset(root_dir='/home/yifan/Documents/data/forest/test/processed', transform=transform),
             batch_size=args.batch_size, shuffle=False, **kwargs)

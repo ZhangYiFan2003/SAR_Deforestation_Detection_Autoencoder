@@ -59,7 +59,7 @@ class VAE(object):
         self.device = torch.device("cuda" if args.cuda else "cpu")
         self._init_dataset()
         self.train_loader = self.data.train_loader
-        self.test_loader = self.data.test_loader
+        self.validation_loader = self.data.validation_loader
 
         self.model = Network(args)
         self.model.to(self.device)
@@ -76,7 +76,7 @@ class VAE(object):
         self.loss_analysis = LossDistributionAnalysis(
             model=self.model,
             train_loader=self.train_loader,
-            test_loader=self.test_loader,
+            validation_loader=self.validation_loader,
             device=self.device,
             args=args
         )
@@ -87,21 +87,6 @@ class VAE(object):
         else:
             print(f"Dataset not supported : {self.args.dataset}")
             sys.exit()
-    """
-    def loss_function(self, recon_x, x, mu, logvar):
-        # Reshape tensors for reconstruction loss
-        recon_x = recon_x.view(-1, 2 * 256 * 256)
-        x = x.view(-1, 2 * 256 * 256)
-        
-        # Using MSE loss for reconstruction (similar to the AE implementation)
-        MSE = F.mse_loss(recon_x, x, reduction='sum')
-        
-        # KL divergence loss
-        KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-        
-        # Total loss is the sum of reconstruction loss and KL divergence
-        return MSE + KLD, MSE, KLD
-    """
     
     def loss_function(self, recon_x, x, mu, logvar, sparsity_weight=0.001, max_value=10):
         """
@@ -188,7 +173,7 @@ class VAE(object):
         test_kld_loss = 0
         
         with torch.no_grad():
-            for data in self.test_loader:
+            for data in self.validation_loader:
                 data = data.to(self.device)
                 recon_batch, mu, logvar = self.model(data)
                 loss, recon_loss, kld_loss = self.loss_function(recon_batch, data, mu, logvar)
@@ -196,16 +181,16 @@ class VAE(object):
                 test_recon_loss += recon_loss.item()
                 test_kld_loss += kld_loss.item()
 
-        avg_loss = test_loss / len(self.test_loader.dataset)
-        avg_recon_loss = test_recon_loss / len(self.test_loader.dataset)
-        avg_kld_loss = test_kld_loss / len(self.test_loader.dataset)
+        avg_loss = test_loss / len(self.validation_loader.dataset)
+        avg_recon_loss = test_recon_loss / len(self.validation_loader.dataset)
+        avg_kld_loss = test_kld_loss / len(self.validation_loader.dataset)
         
-        print(f'====> Test set loss: {avg_loss:.4f}\tRecon: {avg_recon_loss:.4f}\tKLD: {avg_kld_loss:.4f}')
+        print(f'====> Validation set loss: {avg_loss:.4f}\tRecon: {avg_recon_loss:.4f}\tKLD: {avg_kld_loss:.4f}')
         
         # Log metrics to tensorboard
-        self.writer.add_scalar('Loss/test/total', avg_loss, epoch)
-        self.writer.add_scalar('Loss/test/recon', avg_recon_loss, epoch)
-        self.writer.add_scalar('Loss/test/kld', avg_kld_loss, epoch)
+        self.writer.add_scalar('Loss/validation/total', avg_loss, epoch)
+        self.writer.add_scalar('Loss/validation/recon', avg_recon_loss, epoch)
+        self.writer.add_scalar('Loss/validation/kld', avg_kld_loss, epoch)
 
         # 调用EarlyStopping监控
         self.early_stopping(avg_loss, self.model)

@@ -1,6 +1,6 @@
 import os
 
-def add_prefix_to_files(prefix, directory="/home/yifan/Documents/S8_SAR_Dataset/621_970/VH"):
+def add_prefix_to_files(prefix, directory="/home/yifan/Documents/data/forest/test/VH"):
     """
     给当前目录下的所有文件添加指定前缀。
     

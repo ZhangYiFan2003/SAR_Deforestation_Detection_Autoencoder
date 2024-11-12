@@ -38,7 +38,7 @@ class AE(object):
         self.device = torch.device("cuda" if args.cuda else "cpu")
         self._init_dataset()
         self.train_loader = self.data.train_loader
-        self.test_loader = self.data.test_loader
+        self.validation_loader = self.data.validation_loader
         
         self.model = AE_Network(args)
         self.model.to(self.device)
@@ -59,7 +59,7 @@ class AE(object):
         self.loss_analysis = LossDistributionAnalysis(
             model=self.model,
             train_loader=self.train_loader,
-            test_loader=self.test_loader,
+            validation_loader=self.validation_loader,
             device=self.device,
             args=args
         )
@@ -107,15 +107,15 @@ class AE(object):
         self.model.eval()
         test_loss = 0
         with torch.no_grad():
-            for data in self.test_loader:
+            for data in self.validation_loader:
                 data = data.to(self.device)
                 recon_batch = self.model(data)
                 test_loss += self.loss_function(recon_batch, data).item()
 
-        avg_test_loss = test_loss / len(self.test_loader.dataset)
-        print(f'====> Test set loss: {avg_test_loss:.4f}')
+        avg_test_loss = test_loss / len(self.validation_loader.dataset)
+        print(f'====> validation set loss: {avg_test_loss:.4f}')
         
-        self.writer.add_scalar('Loss/test', avg_test_loss, epoch)
+        self.writer.add_scalar('Loss/validation', avg_test_loss, epoch)
         
         #self.loss_analysis.calculate_pixelwise_loss_distribution(self.test_loader, 'Test', epoch)
         

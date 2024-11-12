@@ -8,10 +8,10 @@ import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 
 class LossDistributionAnalysis:
-    def __init__(self, model, train_loader, test_loader, device, args):
+    def __init__(self, model, train_loader, validation_loader, device, args):
         self.model = model
         self.train_loader = train_loader
-        self.test_loader = test_loader
+        self.validation_loader = validation_loader
         self.device = device
         self.args = args
         self.writer = SummaryWriter(log_dir=args.results_path + '/logs')
@@ -27,6 +27,9 @@ class LossDistributionAnalysis:
             for i, data in enumerate(random.sample(list(loader), 20)):
                 data = data.to(self.device)
                 recon_batch = self.model(data)
+                
+                if isinstance(recon_batch, tuple):
+                    recon_batch = recon_batch[0]  # 只取重建的图像部分
                 
                 # 计算逐像素的MSE误差
                 pixel_loss = F.mse_loss(recon_batch, data, reduction='none')
@@ -50,15 +53,15 @@ class LossDistributionAnalysis:
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6), sharey=True)
         
         # 绘制训练集的误差直方图
-        ax1.hist(train_pixel_losses, bins=100, color='blue', edgecolor='black', alpha=0.5, range=(0, 0.01))
+        ax1.hist(train_pixel_losses, bins=500, color='blue', edgecolor='black', alpha=0.5, range=(0, 0.002))
         ax1.set_title('Train Pixel-wise MSE Loss Distribution')
         ax1.set_xlabel('MSE Loss per Pixel')
         ax1.set_ylabel('Frequency')
         ax1.grid(axis='y', linestyle='--', alpha=0.7)
         
         # 绘制测试集的误差直方图
-        ax2.hist(test_pixel_losses, bins=100, color='red', edgecolor='black', alpha=0.5, range=(0, 0.01))
-        ax2.set_title('Test Pixel-wise MSE Loss Distribution')
+        ax2.hist(test_pixel_losses, bins=500, color='red', edgecolor='black', alpha=0.5, range=(0, 0.002))
+        ax2.set_title('Validation Pixel-wise MSE Loss Distribution')
         ax2.set_xlabel('MSE Loss per Pixel')
         ax2.grid(axis='y', linestyle='--', alpha=0.7)
         
@@ -90,7 +93,7 @@ class LossDistributionAnalysis:
         
         # 计算训练集和测试集的逐像素误差
         train_pixel_losses = self._calculate_pixel_losses(self.train_loader, 'Train')
-        test_pixel_losses = self._calculate_pixel_losses(self.test_loader, 'Test')
+        test_pixel_losses = self._calculate_pixel_losses(self.validation_loader, 'Test')
         
         # 绘制训练集和测试集的逐像素误差分布直方图
         self._plot_pixel_loss_distribution(train_pixel_losses, test_pixel_losses)
