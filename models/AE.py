@@ -11,6 +11,8 @@ from datasets import ProcessedForestDataLoader
 from loss_distribution.loss_distribution_analyse import LossDistributionAnalysis
 from early_stop.early_stopping import EarlyStopping
 
+#####################################################################################################################################################
+
 class AE_Network(nn.Module):
     def __init__(self, args):
         super(AE_Network, self).__init__()
@@ -32,6 +34,8 @@ class AE_Network(nn.Module):
         features, encoder_features = self.encode(x)
         return self.decode(features, encoder_features)
 
+#####################################################################################################################################################
+
 class AE(object):
     def __init__(self, args):
         self.args = args
@@ -39,6 +43,7 @@ class AE(object):
         self._init_dataset()
         self.train_loader = self.data.train_loader
         self.validation_loader = self.data.validation_loader
+        self.test_loader = self.data.test_loader
         
         self.model = AE_Network(args)
         self.model.to(self.device)
@@ -56,27 +61,28 @@ class AE(object):
         self.writer = SummaryWriter(log_dir=args.results_path + '/logs')
         
         # 初始化 LossDistributionAnalysis 实例
-        self.loss_analysis = LossDistributionAnalysis(
-            model=self.model,
-            train_loader=self.train_loader,
-            validation_loader=self.validation_loader,
-            device=self.device,
-            args=args
-        )
-    
+        self.loss_analysis = LossDistributionAnalysis(model=self.model, train_loader=self.train_loader, validation_loader=self.validation_loader,
+                                                      test_loader=self.test_loader, device=self.device, args=args)
+
+#####################################################################################################################################################
+
     def _init_dataset(self):
         if self.args.dataset == 'FOREST':
             self.data = ProcessedForestDataLoader(self.args)
         else:
             print(f"Dataset not supported: {self.args.dataset}")
             sys.exit()
-    
+
+#####################################################################################################################################################
+
     def loss_function(self, recon_x, x):
         recon_x = recon_x.view(-1, 2 * 256 * 256)
         x = x.view(-1, 2 * 256 * 256)
         MSE = F.mse_loss(recon_x, x, reduction='sum')
         return MSE
-    
+
+#####################################################################################################################################################
+
     def train(self, epoch):
         self.model.train()
         train_loss = 0
@@ -102,7 +108,9 @@ class AE(object):
         #self.loss_analysis.calculate_pixelwise_loss_distribution(self.train_loader, 'Train', epoch)
         
         self.writer.flush()
-    
+
+#####################################################################################################################################################
+
     def test(self, epoch):
         self.model.eval()
         test_loss = 0

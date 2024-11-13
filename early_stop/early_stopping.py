@@ -5,6 +5,8 @@ from torch import nn, optim
 from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
 
+#####################################################################################################################################################
+
 class EarlyStopping:
     def __init__(self, patience=5, delta=0, path='checkpoint.pth', window_size=5):
         self.patience = patience
@@ -15,6 +17,8 @@ class EarlyStopping:
         self.counter = 0
         self.val_losses = []
         self.window_size = window_size
+
+#####################################################################################################################################################
 
     def __call__(self, val_loss, model):
         # 更新损失列表
@@ -38,6 +42,8 @@ class EarlyStopping:
             self.best_score = score
             self.save_checkpoint(val_loss, model)
             self.counter = 0
+
+#####################################################################################################################################################
 
     def save_checkpoint(self, val_loss, model):
         print(f'Validation loss decreased ({self.best_score:.6f} --> {val_loss:.6f}). Saving model ...')

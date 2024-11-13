@@ -1,3 +1,7 @@
+import sys
+import os
+import numpy as np
+
 import torch
 import torch.utils.data
 from torch import nn, optim
@@ -5,15 +9,13 @@ from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
 from pytorch_msssim import ssim, ms_ssim, SSIM  # 导入SSIM模块
 
-import sys
-import os
-import numpy as np
-
 sys.path.append('../')
 from models.architectures import CNN_Encoder, CNN_Decoder
 from datasets import ProcessedForestDataLoader
 from loss_distribution.loss_distribution_analyse import LossDistributionAnalysis
 from early_stop.early_stopping import EarlyStopping
+
+#####################################################################################################################################################
 
 class Network(nn.Module):
     def __init__(self, args):
@@ -53,6 +55,8 @@ class Network(nn.Module):
         # 解码并返回重建的结果
         return self.decode(z, encoder_features), mu, logvar
 
+#####################################################################################################################################################
+
 class VAE(object):
     def __init__(self, args):
         self.args = args
@@ -60,6 +64,7 @@ class VAE(object):
         self._init_dataset()
         self.train_loader = self.data.train_loader
         self.validation_loader = self.data.validation_loader
+        self.test_loader = self.data.test_loader
 
         self.model = Network(args)
         self.model.to(self.device)
@@ -73,13 +78,10 @@ class VAE(object):
         
         self.writer = SummaryWriter(log_dir=args.results_path + '/logs')
         
-        self.loss_analysis = LossDistributionAnalysis(
-            model=self.model,
-            train_loader=self.train_loader,
-            validation_loader=self.validation_loader,
-            device=self.device,
-            args=args
-        )
+        self.loss_analysis = LossDistributionAnalysis(model=self.model, train_loader=self.train_loader,validation_loader=self.validation_loader,
+                                                      test_loader=self.test_loader,device=self.device,args=args)
+
+#####################################################################################################################################################
 
     def _init_dataset(self):
         if self.args.dataset == 'FOREST':
@@ -87,7 +89,9 @@ class VAE(object):
         else:
             print(f"Dataset not supported : {self.args.dataset}")
             sys.exit()
-    
+
+#####################################################################################################################################################
+
     def loss_function(self, recon_x, x, mu, logvar, sparsity_weight=0.001, max_value=10):
         """
         计算自编码器的损失，包括MSE重构损失、KL散度和稀疏重构损失。
@@ -128,6 +132,8 @@ class VAE(object):
 
         return total_loss, MSE, KLD
 
+#####################################################################################################################################################
+
     def train(self, epoch):
             self.model.train()
             train_loss = 0
@@ -165,6 +171,8 @@ class VAE(object):
 
             # 更新学习率
             self.scheduler.step()
+
+#####################################################################################################################################################
 
     def test(self, epoch):
         self.model.eval()

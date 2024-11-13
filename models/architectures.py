@@ -1,11 +1,8 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torch.autograd import Variable
-from torchvision import models
-from torchvision.ops import DeformConv2d # 引入可变形卷积
 
-import numpy as  np
+#####################################################################################################################################################
 
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1, downsample=None):
@@ -31,6 +28,8 @@ class ResidualBlock(nn.Module):
         out += identity
         out = nn.LeakyReLU(negative_slope=0.01, inplace=True)(out)
         return out
+
+#####################################################################################################################################################
 
 class CNN_Encoder(nn.Module):
     def __init__(self, output_size, input_size=(2, 256, 256)):
@@ -99,6 +98,8 @@ class CNN_Encoder(nn.Module):
         x = self.fc(x)               # -> [batch, output_size]
         return x, [x5, x3, x2, x1]   # 返回编码特征和特征图
 
+#####################################################################################################################################################
+
 class CNN_Decoder(nn.Module):
     def __init__(self, embedding_size, input_size=(2, 256, 256)):
         super(CNN_Decoder, self).__init__()
@@ -160,6 +161,8 @@ class CNN_Decoder(nn.Module):
         
         x = self.final(x)                           # -> [batch, 2, 256, 256]
         return x
+
+#####################################################################################################################################################
 
 """
 # 测试代码

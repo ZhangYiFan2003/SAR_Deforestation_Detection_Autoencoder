@@ -5,8 +5,8 @@ from PIL import Image
 import os
 import numpy as np
 import tifffile as tiff
-#from osgeo import gdal  # 用于读取多通道 tiff 文件
-import argparse
+
+#####################################################################################################################################################
 
 class ProcessedForestDataset(Dataset):
     def __init__(self, root_dir, transform=None):
@@ -57,6 +57,7 @@ class ProcessedForestDataset(Dataset):
 
         return combined_image
 
+#####################################################################################################################################################
 
 class ProcessedForestDataLoader(object):
     def __init__(self, args):
@@ -81,6 +82,8 @@ class ProcessedForestDataLoader(object):
         self.test_loader = DataLoader(
             ProcessedForestDataset(root_dir='/home/yifan/Documents/data/forest/test/processed', transform=transform),
             batch_size=args.batch_size, shuffle=False, **kwargs)
+
+#####################################################################################################################################################
 
 """
 def main():
