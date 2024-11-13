@@ -12,7 +12,7 @@ parser = argparse.ArgumentParser(
     description='Main function to call training for different AutoEncoders')
 parser.add_argument('--batch-size', type=int, default=8, metavar='N',
                     help='input batch size for training (default: 128)')
-parser.add_argument('--epochs', type=int, default=10, metavar='N',
+parser.add_argument('--epochs', type=int, default=20, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='enables CUDA training')
@@ -24,7 +24,7 @@ parser.add_argument('--embedding-size', type=int, default=128, metavar='N',
                     help='embedding size for latent space') #16, 32, 64, ...
 parser.add_argument('--results_path', type=str, default='results/', metavar='N',
                     help='Where to store images')
-parser.add_argument('--model', type=str, default='AE', metavar='N',
+parser.add_argument('--model', type=str, default='VAE', metavar='N',
                     help='Which architecture to use')
 parser.add_argument('--dataset', type=str, default='FOREST', metavar='N',
                     help='Which dataset to use')
@@ -42,7 +42,7 @@ parser.add_argument('--patience', type=int, default=10,
                     help='Patience for early stopping')
 parser.add_argument('--delta', type=float, default=0.01, 
                     help='Minimum change to qualify as improvement for early stopping')
-parser.add_argument('--train', action='store_true', default=False,
+parser.add_argument('--train', action='store_true', default=True,
                     help='Choose whether to train the model (default: True)')
 parser.add_argument('--test', action='store_true', default=True,
                     help='Choose whether to test the model with the latest saved weights (default: False)')
@@ -109,7 +109,7 @@ if __name__ == "__main__":
             print("Manual Interruption")
 
         # 在训练结束后，计算逐像素误差分布并保存对比图
-        loss_analysis.train_and_validation_loss_distribution()
+        #loss_analysis.train_and_validation_loss_distribution()
         
 #####################################################################################################################################################
 
@@ -140,4 +140,4 @@ if __name__ == "__main__":
             sys.exit()
         
         # 使用封装后的方法进行逐像素误差分布测试和绘图
-        loss_analysis.test_loss_distribution()
+        loss_analysis.train_and_validation_and_test_loss_distribution()

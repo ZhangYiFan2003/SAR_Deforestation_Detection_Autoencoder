@@ -33,7 +33,7 @@ class LossDistributionAnalysis:
             sampled_batches = random.sample(list(loader), min(num_batches, len(loader)))
             
             # 遍历采样到的批次
-            for i, data in enumerate(sampled_batches):
+            for i, data in enumerate(random.sample(list(loader), 10)):
                 data = data.to(self.device)
                 
                 # AE 或 VAE 重建处理
@@ -47,7 +47,9 @@ class LossDistributionAnalysis:
                 batch_loss = loss_fn(recon_batch, data)
                 
                 # 将所有像素的误差添加到 pixel_losses 列表中
-                pixel_losses.extend(batch_loss.view(-1).cpu().numpy())  # 展平成一维数组，收集所有像素的 MSE 误差
+                mse_batch = batch_loss.mean(dim=(1, 2, 3))
+                pixel_losses.extend(mse_batch.cpu().numpy())
+                #pixel_losses.extend(batch_loss.view(-1).cpu().numpy())  # 展平成一维数组，收集所有像素的 MSE 误差
         
         # 转换为 NumPy 数组
         pixel_losses = np.array(pixel_losses)
@@ -59,7 +61,7 @@ class LossDistributionAnalysis:
 
 #####################################################################################################################################################
 
-    def _plot_histogram(self, data, title, xlabel, ylabel, save_path, color='blue', alpha=0.7, bins=1000, xlim=(0, 0.05)):
+    def _plot_histogram(self, data, title, xlabel, ylabel, save_path, color='blue', alpha=0.7, bins=1000, xlim=(0, 0.0005)):
         """通用的绘制直方图函数"""
         plt.figure(figsize=(10, 6))
         """
@@ -72,7 +74,7 @@ class LossDistributionAnalysis:
         plt.xlabel(xlabel, fontsize=12)
         plt.ylabel(ylabel, fontsize=12)
         plt.title(title, fontsize=14)
-        #plt.xlim(xlim)
+        plt.xlim(xlim)
         plt.grid(axis='y', linestyle='--', alpha=0.7)
         plt.savefig(save_path)
         plt.close()
@@ -86,7 +88,7 @@ class LossDistributionAnalysis:
         
         # 计算训练集和测试集的逐像素误差
         train_pixel_losses = self._calculate_pixel_losses(self.train_loader, 'Train')
-        test_pixel_losses = self._calculate_pixel_losses(self.validation_loader, 'Validation')
+        validation_pixel_losses = self._calculate_pixel_losses(self.validation_loader, 'Validation')
         
         # 绘制训练集和测试集的逐像素误差分布直方图
         train_plot_path = os.path.join(self.args.results_path, 'train_pixelwise_mse_distribution.png')
@@ -94,24 +96,58 @@ class LossDistributionAnalysis:
                              train_plot_path, color='blue')
         
         test_plot_path = os.path.join(self.args.results_path, 'validation_pixelwise_mse_distribution.png')
-        self._plot_histogram(test_pixel_losses, 'Validation Pixel-wise MSE Distribution', 'MSE per Pixel', 'Frequency', 
+        self._plot_histogram(validation_pixel_losses, 'Validation Pixel-wise MSE Distribution', 'MSE per Pixel', 'Frequency', 
                              test_plot_path, color='red')
 
 
 #####################################################################################################################################################
 
-    def test_loss_distribution(self):
+    def train_and_validation_and_test_loss_distribution(self):
         """用于在测试过程中计算和绘制逐像素误差分布的封装方法"""
         self.model.eval()
         
+        # 计算训练集和测试集的逐像素误差
+        train_pixel_losses = self._calculate_pixel_losses(self.train_loader, 'Train')
+        validation_pixel_losses = self._calculate_pixel_losses(self.validation_loader, 'Validation')
+        
         # 计算测试集的逐像素误差
-        mse_losses = self._calculate_pixel_losses(self.test_loader, 'Test')
+        test_pixel_losses = self._calculate_pixel_losses(self.test_loader, 'Test')
+        
+        # 绘制训练集和测试集的逐像素误差分布直方图
+        train_plot_path = os.path.join(self.args.results_path, 'train_pixelwise_mse_distribution.png')
+        self._plot_histogram(train_pixel_losses, 'Train Pixel-wise MSE Distribution', 'MSE per Pixel', 'Frequency', 
+                             train_plot_path, color='blue')
+        
+        validation_plot_path = os.path.join(self.args.results_path, 'validation_pixelwise_mse_distribution.png')
+        self._plot_histogram(validation_pixel_losses, 'Validation Pixel-wise MSE Distribution', 'MSE per Pixel', 'Frequency', 
+                             validation_plot_path, color='red')
         
         # 绘制并保存MSE损失的频率分布
         plot_path = os.path.join(self.args.results_path, 'test_pixelwise_mse_distribution.png')
-        self._plot_histogram(mse_losses, 'Test Pixel-wise MSE Distribution', 'MSE per Pixel', 'Frequency', 
+        self._plot_histogram(test_pixel_losses, 'Test Pixel-wise MSE Distribution', 'MSE per Pixel', 'Frequency', 
                              plot_path, color='green')
+        """
+        # 计算训练、验证和测试之间的误差差异并绘制直方图
+        # 差异计算
+        train_val_diff = train_pixel_losses - validation_pixel_losses[:len(train_pixel_losses)]
+        train_test_diff = train_pixel_losses - test_pixel_losses[:len(train_pixel_losses)]
+        val_test_diff = validation_pixel_losses - test_pixel_losses[:len(validation_pixel_losses)]
         
+        # 绘制差异的直方图
+        train_val_diff_path = os.path.join(self.args.results_path, 'train_validation_mse_diff_distribution.png')
+        self._plot_histogram(train_val_diff, 'Train vs Validation MSE Difference Distribution', 'MSE Difference per Pixel', 'Frequency',
+                             train_val_diff_path, color='purple')
+        
+        train_test_diff_path = os.path.join(self.args.results_path, 'train_test_mse_diff_distribution.png')
+        self._plot_histogram(train_test_diff, 'Train vs Test MSE Difference Distribution', 'MSE Difference per Pixel', 'Frequency',
+                             train_test_diff_path, color='orange')
+        
+        val_test_diff_path = os.path.join(self.args.results_path, 'validation_test_mse_diff_distribution.png')
+        self._plot_histogram(val_test_diff, 'Validation vs Test MSE Difference Distribution', 'MSE Difference per Pixel', 'Frequency',
+                             val_test_diff_path, color='cyan')
+        
+        print("All difference histograms saved.")
+        """
         # 调用重构和差异分析方法
         #self._reconstruct_and_analyze_images()
 
