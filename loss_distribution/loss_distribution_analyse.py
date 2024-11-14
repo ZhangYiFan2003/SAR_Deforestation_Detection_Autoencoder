@@ -25,7 +25,7 @@ class LossDistributionAnalysis:
     def _calculate_pixel_losses(self, loader, dataset_type, num_batches=20):
         """计算并返回给定数据加载器中的每个像素的 MSE 损失"""
         pixel_losses = []
-        
+        self.model.eval()
         with torch.no_grad():
             print("Evaluating model on dataset...")
             
@@ -33,7 +33,7 @@ class LossDistributionAnalysis:
             sampled_batches = random.sample(list(loader), min(num_batches, len(loader)))
             
             # 遍历采样到的批次
-            for i, data in enumerate(random.sample(list(loader), 10)):
+            for i, data in enumerate(sampled_batches):
                 data = data.to(self.device)
                 
                 # AE 或 VAE 重建处理
@@ -47,9 +47,9 @@ class LossDistributionAnalysis:
                 batch_loss = loss_fn(recon_batch, data)
                 
                 # 将所有像素的误差添加到 pixel_losses 列表中
-                mse_batch = batch_loss.mean(dim=(1, 2, 3))
-                pixel_losses.extend(mse_batch.cpu().numpy())
-                #pixel_losses.extend(batch_loss.view(-1).cpu().numpy())  # 展平成一维数组，收集所有像素的 MSE 误差
+                #mse_batch = batch_loss.mean(dim=(1, 2, 3))
+                #pixel_losses.extend(mse_batch.cpu().numpy())
+                pixel_losses.extend(batch_loss.view(-1).cpu().numpy())  # 展平成一维数组，收集所有像素的 MSE 误差
         
         # 转换为 NumPy 数组
         pixel_losses = np.array(pixel_losses)
@@ -61,7 +61,7 @@ class LossDistributionAnalysis:
 
 #####################################################################################################################################################
 
-    def _plot_histogram(self, data, title, xlabel, ylabel, save_path, color='blue', alpha=0.7, bins=1000, xlim=(0, 0.0005)):
+    def _plot_histogram(self, data, title, xlabel, ylabel, save_path, color='blue', alpha=0.7, bins=1000, xlim=(0, 0.0015)):
         """通用的绘制直方图函数"""
         plt.figure(figsize=(10, 6))
         """
@@ -106,11 +106,9 @@ class LossDistributionAnalysis:
         """用于在测试过程中计算和绘制逐像素误差分布的封装方法"""
         self.model.eval()
         
-        # 计算训练集和测试集的逐像素误差
+        # 计算训练集、验证集和测试集的逐像素误差
         train_pixel_losses = self._calculate_pixel_losses(self.train_loader, 'Train')
         validation_pixel_losses = self._calculate_pixel_losses(self.validation_loader, 'Validation')
-        
-        # 计算测试集的逐像素误差
         test_pixel_losses = self._calculate_pixel_losses(self.test_loader, 'Test')
         
         # 绘制训练集和测试集的逐像素误差分布直方图
@@ -148,8 +146,84 @@ class LossDistributionAnalysis:
         
         print("All difference histograms saved.")
         """
+        
+        # 计算训练集误差的统计特征（均值和标准差）
+        train_mean = np.mean(train_pixel_losses)
+        train_std = np.std(train_pixel_losses)
+        print(f"Train Pixel-wise MSE - Mean: {train_mean:.6f}, Std: {train_std:.6f}")
+        
+        # 使用Z-score方法确定异常阈值（例如，设定阈值为均值加上3倍标准差）
+        anomaly_threshold = train_mean + 3 * train_std
+        print(f"Anomaly detection threshold (Mean + 3*Std): {anomaly_threshold:.6f}")
+        
         # 调用重构和差异分析方法
-        #self._reconstruct_and_analyze_images()
+        self._reconstruct_and_analyze_images(anomaly_threshold)
+
+#####################################################################################################################################################
+
+    def _reconstruct_and_analyze_images(self, anomaly_threshold):
+        """随机选择一张测试集图像进行重构和异常检测"""
+        print("Randomly selecting one image in the test dataset for anomaly detection...")
+        self.model.eval()
+        with torch.no_grad():
+            # 随机选择一个批次
+            all_test_images = list(self.test_loader)
+            selected_batch = random.choice(all_test_images)
+            
+            # 从选定的批次中随机选择一张图像
+            image_index = random.randint(0, selected_batch.size(0) - 1)
+            data = selected_batch[image_index].unsqueeze(0).to(self.device)  # 取指定图像并增加批次维度
+
+            # AE 或 VAE 重建处理
+            recon_data = self.model(data)
+            if isinstance(recon_data, tuple):
+                recon_data = recon_data[0]  # 只取重建的图像部分
+
+            # 计算逐像素的 MSE 误差 (形状为 1 x C x H x W)
+            loss_fn = torch.nn.MSELoss(reduction='none')
+            pixel_loss = loss_fn(recon_data, data)  # 保持形状为 (1, C, H, W)
+            pixel_loss = pixel_loss.squeeze(0).cpu().numpy()  # 移除批次维度，转换为 NumPy 数组
+
+            # 计算异常检测图（像素级阈值判断）
+            anomaly_map = np.zeros_like(pixel_loss[0])  # 假设使用第一个通道
+            anomaly_map[pixel_loss[0] > anomaly_threshold] = 1  # 异常像素置为1，其余为0
+
+            # 保存原始图像、重建图像、差异图像和异常检测结果
+            original_img = data.squeeze(0).cpu().numpy()
+            recon_img = recon_data.squeeze(0).cpu().numpy()
+            diff_img = np.abs(original_img - recon_img)
+
+            # 保存原始图像
+            orig_save_path = os.path.join(self.args.results_path, 'original_image.tif')
+            tiff.imwrite(orig_save_path, original_img)
+            # 保存重建图像
+            recon_save_path = os.path.join(self.args.results_path, 'reconstructed_image.tif')
+            tiff.imwrite(recon_save_path, recon_img)
+            # 保存差异图像
+            diff_save_path = os.path.join(self.args.results_path, 'difference_image.tif')
+            tiff.imwrite(diff_save_path, diff_img)
+            # 保存异常检测结果（异常像素图）
+            anomaly_save_path = os.path.join(self.args.results_path, 'anomaly_map.tif')
+            tiff.imwrite(anomaly_save_path, anomaly_map)
+            print(f"Anomaly detection result saved at {anomaly_save_path}")
+
+            # 可视化异常检测结果（可选）
+            plt.figure(figsize=(12, 6))
+            plt.subplot(1, 2, 1)
+            plt.imshow(original_img[0], cmap='gray')
+            plt.title('Original Image')
+            plt.axis('off')
+
+            plt.subplot(1, 2, 2)
+            plt.imshow(anomaly_map, cmap='hot')
+            plt.title('Anomaly Map')
+            plt.axis('off')
+
+            plt.tight_layout()
+            vis_save_path = os.path.join(self.args.results_path, 'anomaly_detection_result.png')
+            plt.savefig(vis_save_path)
+            plt.close()
+            print(f"Anomaly detection visualization saved at {vis_save_path}")
 
 #####################################################################################################################################################
 
@@ -172,40 +246,3 @@ class LossDistributionAnalysis:
         self.writer.add_histogram(f'{dataset_type}_Pixelwise_MSE_Loss_Distribution', pixel_losses, global_step=epoch)
 
 #####################################################################################################################################################
-
-    def _reconstruct_and_analyze_images(self):
-            """随机选择 10 张图像用于重构和差异分析"""
-            print("Randomly selecting 10 images for reconstruction...")
-            all_test_images = list(self.test_loader)
-            selected_batches = random.sample(all_test_images, 10)
-
-            for idx, batch in enumerate(selected_batches):
-                batch = batch.to(self.device)
-                
-                # AE or VAE processing for reconstruction
-                if isinstance(self.model, torch.nn.Module):  # 根据模型类型进行处理
-                    recon_batch = self.model(batch)
-                else:
-                    recon_batch, _, _ = self.model(batch)
-
-                # Save original, reconstructed, and difference images
-                for img_idx in range(batch.size(0)):
-                    original_img = batch[img_idx].cpu().numpy()
-                    recon_img = recon_batch[img_idx].detach().cpu().numpy()
-                    diff_img = np.abs(original_img - recon_img)
-
-                    # 保存原始图像
-                    orig_save_path = os.path.join(self.args.results_path, f'original_image_{idx}_{img_idx}.tif')
-                    tiff.imwrite(orig_save_path, original_img)
-                    # 保存重建图像
-                    recon_save_path = os.path.join(self.args.results_path, f'reconstructed_image_{idx}_{img_idx}.tif')
-                    tiff.imwrite(recon_save_path, recon_img)
-                    # 保存差异图像
-                    diff_save_path = os.path.join(self.args.results_path, f'difference_image_{idx}_{img_idx}.tif')
-                    tiff.imwrite(diff_save_path, diff_img)
-
-                    print(f"Image {img_idx} in batch {idx} saved: Original, Reconstructed, and Difference images.")
-
-                # 计算每张图像的平均差异
-                mean_diff = diff_img.mean()
-                print(f'Batch {idx}, Image {img_idx}: Mean difference = {mean_diff:.4f}')
