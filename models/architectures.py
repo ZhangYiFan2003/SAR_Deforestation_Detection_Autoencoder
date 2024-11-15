@@ -31,6 +31,44 @@ class ResidualBlock(nn.Module):
 
 #####################################################################################################################################################
 
+
+class SelfAttention(nn.Module):
+    def __init__(self, in_dim):
+        super(SelfAttention, self).__init__()
+        self.channel_in = in_dim
+
+        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.key_conv   = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim,  kernel_size=1)
+
+        self.gamma = nn.Parameter(torch.zeros(1))
+        self.softmax  = nn.Softmax(dim=-1)
+        self.norm = nn.BatchNorm2d(in_dim)
+
+    def forward(self, x):
+        """
+        输入:
+            x: 输入特征图 (B, C, H, W)
+        返回:
+            out: 自注意力增强的特征图
+            attention: 自注意力映射
+        """
+        m_batchsize, C, width, height = x.size()
+        proj_query  = self.query_conv(x).view(m_batchsize, -1, width*height)         # B, C', N
+        proj_key    = self.key_conv(x).view(m_batchsize, -1, width*height)           # B, C', N
+        energy      = torch.bmm(proj_query.permute(0, 2, 1), proj_key)               # B, N, N
+        attention   = self.softmax(energy)                                           # B, N, N
+        proj_value  = self.value_conv(x).view(m_batchsize, -1, width*height)         # B, C, N
+
+        out = torch.bmm(proj_value, attention.permute(0, 2, 1))                      # B, C, N
+        out = out.view(m_batchsize, C, width, height)
+
+        out = self.gamma * out + x
+        out = self.norm(out)
+        return out
+
+#####################################################################################################################################################
+
 class CNN_Encoder(nn.Module):
     def __init__(self, output_size, input_size=(2, 256, 256)):
         super(CNN_Encoder, self).__init__()
@@ -54,6 +92,9 @@ class CNN_Encoder(nn.Module):
         self.encoder4 = self._make_layer(self.channel_mult * 4, self.channel_mult * 8, 2)  
         # encoder5: 512 -> 512 channels, 尺寸: 8x8 -> 4x4
         self.encoder5 = self._make_layer(self.channel_mult * 8, self.channel_mult * 8, 2)  
+
+        # 在 encoder5 后添加自注意力层
+        self.attention = SelfAttention(self.channel_mult * 8)
 
         # FPN 侧边卷积层，将通道数统一为256
         self.lateral_conv1 = nn.Conv2d(self.channel_mult*8, 256, kernel_size=1)
@@ -95,6 +136,9 @@ class CNN_Encoder(nn.Module):
         x3 = self.encoder3(x2)       # -> [batch, 256, 16, 16]
         x4 = self.encoder4(x3)       # -> [batch, 512, 8, 8]
         x5 = self.encoder5(x4)       # -> [batch, 512, 4, 4]
+
+        # 自注意力层
+        x5 = self.attention(x5)      # -> [batch, 512, 4, 4]
 
         # FPN自顶向下路径
         p5 = self.lateral_conv1(x5)  # -> [batch, 256, 4, 4]
@@ -138,7 +182,10 @@ class CNN_Decoder(nn.Module):
         self.decoder5 = self._up_block(128, 64)   # 128 -> 64
         self.decoder6 = self._up_block(64, 32)    # 64 -> 32
 
-        # 最终输出层（修改后的）
+        # 在 decoder3 后添加自注意力层
+        self.attention_decoder = SelfAttention(256)
+
+        # 最终输出层
         self.final = nn.Sequential(
             nn.Conv2d(32, 2, kernel_size=3, stride=1, padding=1),
             nn.Tanh()
@@ -164,7 +211,9 @@ class CNN_Decoder(nn.Module):
         x = x + fpn_features[2]                     # 与 FPN 的 p3 特征融合
 
         x = self.decoder3(x)                        # -> [batch, 256, 32, 32]
-        #x = x + fpn_features[3]                     # 与 FPN 的 p2 特征融合
+
+        # 在这里添加自注意力层
+        x = self.attention_decoder(x)               # -> [batch, 256, 32, 32]
 
         x = self.decoder4(x)                        # -> [batch, 128, 64, 64]
         x = self.decoder5(x)                        # -> [batch, 64, 128, 128]

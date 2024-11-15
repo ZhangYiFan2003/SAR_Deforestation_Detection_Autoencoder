@@ -7,6 +7,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 import tifffile as tiff
+from scipy.stats import norm
 
 #####################################################################################################################################################
 
@@ -47,9 +48,9 @@ class LossDistributionAnalysis:
                 batch_loss = loss_fn(recon_batch, data)
                 
                 # 将所有像素的误差添加到 pixel_losses 列表中
-                #mse_batch = batch_loss.mean(dim=(1, 2, 3))
-                #pixel_losses.extend(mse_batch.cpu().numpy())
-                pixel_losses.extend(batch_loss.view(-1).cpu().numpy())  # 展平成一维数组，收集所有像素的 MSE 误差
+                mse_batch = batch_loss.mean(dim=(1, 2, 3))
+                pixel_losses.extend(mse_batch.cpu().numpy())
+                #pixel_losses.extend(batch_loss.view(-1).cpu().numpy())  # 展平成一维数组，收集所有像素的 MSE 误差
         
         # 转换为 NumPy 数组
         pixel_losses = np.array(pixel_losses)
@@ -79,26 +80,6 @@ class LossDistributionAnalysis:
         plt.savefig(save_path)
         plt.close()
         print(f"{title} saved at {save_path}")
-
-#####################################################################################################################################################
-
-    def train_and_validation_loss_distribution(self):
-        """计算训练集和测试集的逐像素误差分布，并生成直方图"""
-        self.model.eval()
-        
-        # 计算训练集和测试集的逐像素误差
-        train_pixel_losses = self._calculate_pixel_losses(self.train_loader, 'Train')
-        validation_pixel_losses = self._calculate_pixel_losses(self.validation_loader, 'Validation')
-        
-        # 绘制训练集和测试集的逐像素误差分布直方图
-        train_plot_path = os.path.join(self.args.results_path, 'train_pixelwise_mse_distribution.png')
-        self._plot_histogram(train_pixel_losses, 'Train Pixel-wise MSE Distribution', 'MSE per Pixel', 'Frequency', 
-                             train_plot_path, color='blue')
-        
-        test_plot_path = os.path.join(self.args.results_path, 'validation_pixelwise_mse_distribution.png')
-        self._plot_histogram(validation_pixel_losses, 'Validation Pixel-wise MSE Distribution', 'MSE per Pixel', 'Frequency', 
-                             test_plot_path, color='red')
-
 
 #####################################################################################################################################################
 
@@ -146,15 +127,22 @@ class LossDistributionAnalysis:
         
         print("All difference histograms saved.")
         """
-        
         # 计算训练集误差的统计特征（均值和标准差）
         train_mean = np.mean(train_pixel_losses)
         train_std = np.std(train_pixel_losses)
         print(f"Train Pixel-wise MSE - Mean: {train_mean:.6f}, Std: {train_std:.6f}")
-        
+        """
         # 使用Z-score方法确定异常阈值（例如，设定阈值为均值加上3倍标准差）
-        anomaly_threshold = train_mean + 3 * train_std
+        anomaly_threshold = train_mean + 100 * train_std
         print(f"Anomaly detection threshold (Mean + 3*Std): {anomaly_threshold:.6f}")
+        
+        # 使用正态分布计算指定置信区间的异常阈值（例如99%置信区间）
+        confidence_level = 0.99
+        z_score = norm.ppf(confidence_level)
+        anomaly_threshold = train_mean + z_score * train_std
+        print(f"Anomaly detection threshold (99% confidence interval): {anomaly_threshold:.6f}")
+        """
+        anomaly_threshold = np.quantile(train_pixel_losses, 0.999)
         
         # 调用重构和差异分析方法
         self._reconstruct_and_analyze_images(anomaly_threshold)
@@ -185,8 +173,8 @@ class LossDistributionAnalysis:
             pixel_loss = pixel_loss.squeeze(0).cpu().numpy()  # 移除批次维度，转换为 NumPy 数组
 
             # 计算异常检测图（像素级阈值判断）
-            anomaly_map = np.zeros_like(pixel_loss[0])  # 假设使用第一个通道
-            anomaly_map[pixel_loss[0] > anomaly_threshold] = 1  # 异常像素置为1，其余为0
+            anomaly_map = np.ones_like(pixel_loss[0])  # 假设使用第一个通道
+            anomaly_map[pixel_loss[0] > anomaly_threshold] = 0  # 异常像素置为1，其余为0
 
             # 保存原始图像、重建图像、差异图像和异常检测结果
             original_img = data.squeeze(0).cpu().numpy()
@@ -244,5 +232,24 @@ class LossDistributionAnalysis:
         
         # 在 TensorBoard 中记录逐像素误差分布
         self.writer.add_histogram(f'{dataset_type}_Pixelwise_MSE_Loss_Distribution', pixel_losses, global_step=epoch)
+
+#####################################################################################################################################################
+
+    def train_and_validation_loss_distribution(self):
+        """计算训练集和测试集的逐像素误差分布，并生成直方图"""
+        self.model.eval()
+        
+        # 计算训练集和测试集的逐像素误差
+        train_pixel_losses = self._calculate_pixel_losses(self.train_loader, 'Train')
+        validation_pixel_losses = self._calculate_pixel_losses(self.validation_loader, 'Validation')
+        
+        # 绘制训练集和测试集的逐像素误差分布直方图
+        train_plot_path = os.path.join(self.args.results_path, 'train_pixelwise_mse_distribution.png')
+        self._plot_histogram(train_pixel_losses, 'Train Pixel-wise MSE Distribution', 'MSE per Pixel', 'Frequency', 
+                             train_plot_path, color='blue')
+        
+        test_plot_path = os.path.join(self.args.results_path, 'validation_pixelwise_mse_distribution.png')
+        self._plot_histogram(validation_pixel_losses, 'Validation Pixel-wise MSE Distribution', 'MSE per Pixel', 'Frequency', 
+                             test_plot_path, color='red')
 
 #####################################################################################################################################################
