@@ -62,14 +62,9 @@ class LossDistributionAnalysis:
 
 #####################################################################################################################################################
 
-    def _plot_histogram(self, data, title, xlabel, ylabel, save_path, color='blue', alpha=0.7, bins=1000, xlim=(0, 0.0015)):
-        """通用的绘制直方图函数"""
+    def _plot_histogram(self, data, title, xlabel, ylabel, save_path, hyperparameters, color='blue', alpha=0.7, bins=1000, xlim=(0, 0.0015)):
+        """绘制直方图并在图中包含超参数信息"""
         plt.figure(figsize=(10, 6))
-        """
-        hist, bin_edges = np.histogram(data, bins=500)
-        print("Histogram bin counts:", hist)
-        print("Bin edges:", bin_edges)
-        """
         plt.hist(data, bins=bins, color=color, alpha=alpha, edgecolor='black', density=True)
         plt.yscale('log')  # 将 y 轴设置为对数刻度
         plt.xlabel(xlabel, fontsize=12)
@@ -77,7 +72,12 @@ class LossDistributionAnalysis:
         plt.title(title, fontsize=14)
         plt.xlim(xlim)
         plt.grid(axis='y', linestyle='--', alpha=0.7)
-        plt.savefig(save_path)
+        
+        # 在图中添加超参数信息
+        hyperparameters_text = '\n'.join([f'{key}: {value}' for key, value in hyperparameters.items()])
+        plt.gcf().text(0.95, 0.5, hyperparameters_text, fontsize=10, ha='right', va='center', transform=plt.gcf().transFigure)
+        
+        plt.savefig(save_path, bbox_inches='tight')
         plt.close()
         print(f"{title} saved at {save_path}")
 
@@ -92,19 +92,32 @@ class LossDistributionAnalysis:
         validation_pixel_losses = self._calculate_pixel_losses(self.validation_loader, 'Validation')
         test_pixel_losses = self._calculate_pixel_losses(self.test_loader, 'Test')
         
+        # 获取超参数
+        hyperparameters = {
+            'batch_size': self.args.batch_size,
+            'epochs': self.args.epochs,
+            'embedding_size': self.args.embedding_size,
+            'learning_rate': self.args.lr,
+            'weight_decay': self.args.weight_decay,
+            'model': self.args.model,
+            'step_size': self.args.step_size,
+            'gamma': self.args.gamma
+            # 可以根据需要添加更多超参数
+        }
+        
         # 绘制训练集和测试集的逐像素误差分布直方图
         train_plot_path = os.path.join(self.args.results_path, 'train_pixelwise_mse_distribution.png')
         self._plot_histogram(train_pixel_losses, 'Train Pixel-wise MSE Distribution', 'MSE per Pixel', 'Frequency', 
-                             train_plot_path, color='blue')
+                             train_plot_path, hyperparameters, color='blue')
         
         validation_plot_path = os.path.join(self.args.results_path, 'validation_pixelwise_mse_distribution.png')
         self._plot_histogram(validation_pixel_losses, 'Validation Pixel-wise MSE Distribution', 'MSE per Pixel', 'Frequency', 
-                             validation_plot_path, color='red')
+                             validation_plot_path, hyperparameters, color='red')
         
         # 绘制并保存MSE损失的频率分布
         plot_path = os.path.join(self.args.results_path, 'test_pixelwise_mse_distribution.png')
         self._plot_histogram(test_pixel_losses, 'Test Pixel-wise MSE Distribution', 'MSE per Pixel', 'Frequency', 
-                             plot_path, color='green')
+                             plot_path, hyperparameters, color='green')
         """
         # 计算训练、验证和测试之间的误差差异并绘制直方图
         # 差异计算
@@ -144,24 +157,44 @@ class LossDistributionAnalysis:
         """
         anomaly_threshold = np.quantile(train_pixel_losses, 0.999)
         
+        image_index = 1566 #1566-1592
+        
         # 调用重构和差异分析方法
-        self._reconstruct_and_analyze_images(anomaly_threshold)
+        self._reconstruct_and_analyze_images(anomaly_threshold, image_index=image_index)
 
 #####################################################################################################################################################
 
-    def _reconstruct_and_analyze_images(self, anomaly_threshold):
-        """随机选择一张测试集图像进行重构和异常检测"""
-        print("Randomly selecting one image in the test dataset for anomaly detection...")
+    def _reconstruct_and_analyze_images(self, anomaly_threshold, image_index=None):
+        """根据指定索引选择一张测试集图像进行重构和异常检测，如果未指定索引则随机选择"""
+        if image_index is not None:
+            print(f"Selecting image at index {image_index} from the test dataset for anomaly detection...")
+        else:
+            print("Randomly selecting one image in the test dataset for anomaly detection...")
+
         self.model.eval()
         with torch.no_grad():
-            # 随机选择一个批次
-            all_test_images = list(self.test_loader)
-            selected_batch = random.choice(all_test_images)
+            # 如果提供了图像索引
+            if image_index is not None:
+                dataset = self.test_loader.dataset
+                if image_index < 0 or image_index >= len(dataset):
+                    print(f"Image index {image_index} is out of bounds. Valid range: 0 to {len(dataset) - 1}.")
+                    return
+                
+                # 获取指定索引的图像数据
+                data = dataset[image_index]
+                # 如果返回的是（图像，标签）元组，只取图像部分
+                if isinstance(data, tuple) or isinstance(data, list):
+                    data = data[0]
+                data = data.unsqueeze(0).to(self.device)  # 增加批次维度
+            else:
+                # 随机选择一个批次
+                all_test_images = list(self.test_loader)
+                selected_batch = random.choice(all_test_images)
+                # 从选定的批次中随机选择一张图像
+                rand_image_index = random.randint(0, selected_batch.size(0) - 1)
+                data = selected_batch[rand_image_index].unsqueeze(0).to(self.device)
+                print(f"Randomly selected image from batch with index {rand_image_index}.")
             
-            # 从选定的批次中随机选择一张图像
-            image_index = random.randint(0, selected_batch.size(0) - 1)
-            data = selected_batch[image_index].unsqueeze(0).to(self.device)  # 取指定图像并增加批次维度
-
             # AE 或 VAE 重建处理
             recon_data = self.model(data)
             if isinstance(recon_data, tuple):
@@ -180,7 +213,7 @@ class LossDistributionAnalysis:
             original_img = data.squeeze(0).cpu().numpy()
             recon_img = recon_data.squeeze(0).cpu().numpy()
             diff_img = np.abs(original_img - recon_img)
-
+            """
             # 保存原始图像
             orig_save_path = os.path.join(self.args.results_path, 'original_image.tif')
             tiff.imwrite(orig_save_path, original_img)
@@ -194,7 +227,7 @@ class LossDistributionAnalysis:
             anomaly_save_path = os.path.join(self.args.results_path, 'anomaly_map.tif')
             tiff.imwrite(anomaly_save_path, anomaly_map)
             print(f"Anomaly detection result saved at {anomaly_save_path}")
-
+            """
             # 可视化异常检测结果（可选）
             plt.figure(figsize=(12, 6))
             plt.subplot(1, 2, 1)
@@ -212,44 +245,3 @@ class LossDistributionAnalysis:
             plt.savefig(vis_save_path)
             plt.close()
             print(f"Anomaly detection visualization saved at {vis_save_path}")
-
-#####################################################################################################################################################
-
-    def calculate_pixelwise_loss_distribution(self, loader, dataset_type, epoch):
-        """计算给定数据加载器中逐像素的损失分布，并在 TensorBoard 中记录"""
-        pixel_losses = []
-        
-        with torch.no_grad():
-            for i, data in enumerate(random.sample(list(loader), 20)):
-                data = data.to(self.device)
-                recon_batch = self.model(data)
-                
-                pixel_loss = F.mse_loss(recon_batch, data, reduction='none')
-                pixel_loss = pixel_loss.view(-1, 2, 256, 256)
-                pixel_losses.append(pixel_loss.cpu().numpy())
-                
-        pixel_losses = np.concatenate(pixel_losses, axis=0).flatten()
-        
-        # 在 TensorBoard 中记录逐像素误差分布
-        self.writer.add_histogram(f'{dataset_type}_Pixelwise_MSE_Loss_Distribution', pixel_losses, global_step=epoch)
-
-#####################################################################################################################################################
-
-    def train_and_validation_loss_distribution(self):
-        """计算训练集和测试集的逐像素误差分布，并生成直方图"""
-        self.model.eval()
-        
-        # 计算训练集和测试集的逐像素误差
-        train_pixel_losses = self._calculate_pixel_losses(self.train_loader, 'Train')
-        validation_pixel_losses = self._calculate_pixel_losses(self.validation_loader, 'Validation')
-        
-        # 绘制训练集和测试集的逐像素误差分布直方图
-        train_plot_path = os.path.join(self.args.results_path, 'train_pixelwise_mse_distribution.png')
-        self._plot_histogram(train_pixel_losses, 'Train Pixel-wise MSE Distribution', 'MSE per Pixel', 'Frequency', 
-                             train_plot_path, color='blue')
-        
-        test_plot_path = os.path.join(self.args.results_path, 'validation_pixelwise_mse_distribution.png')
-        self._plot_histogram(validation_pixel_losses, 'Validation Pixel-wise MSE Distribution', 'MSE per Pixel', 'Frequency', 
-                             test_plot_path, color='red')
-
-#####################################################################################################################################################

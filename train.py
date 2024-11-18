@@ -12,7 +12,7 @@ parser = argparse.ArgumentParser(
     description='Main function to call training for different AutoEncoders')
 parser.add_argument('--batch-size', type=int, default=8, metavar='N',
                     help='input batch size for training (default: 128)')
-parser.add_argument('--epochs', type=int, default=10, metavar='N',
+parser.add_argument('--epochs', type=int, default=20, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='enables CUDA training')
@@ -40,7 +40,7 @@ parser.add_argument('--patience', type=int, default=5,
                     help='Patience for early stopping')
 parser.add_argument('--delta', type=float, default=0.01, 
                     help='Minimum change to qualify as improvement for early stopping')
-parser.add_argument('--train', action='store_true', default=True,
+parser.add_argument('--train', action='store_true', default=False,
                     help='Choose whether to train the model')
 parser.add_argument('--test', action='store_true', default=True,
                     help='Choose whether to test the model with the latest saved weights')
