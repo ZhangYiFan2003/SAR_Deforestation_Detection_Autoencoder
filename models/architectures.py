@@ -138,7 +138,7 @@ class CNN_Encoder(nn.Module):
         x5 = self.encoder5(x4)       # -> [batch, 512, 4, 4]
 
         # 自注意力层
-        #x5 = self.attention(x5)      # -> [batch, 512, 4, 4]
+        x5 = self.attention(x5)      # -> [batch, 512, 4, 4]
 
         # FPN自顶向下路径
         p5 = self.lateral_conv1(x5)  # -> [batch, 256, 4, 4]
@@ -213,7 +213,7 @@ class CNN_Decoder(nn.Module):
         x = self.decoder3(x)                        # -> [batch, 256, 32, 32]
 
         # 在这里添加自注意力层
-        #x = self.attention_decoder(x)               # -> [batch, 256, 32, 32]
+        x = self.attention_decoder(x)               # -> [batch, 256, 32, 32]
 
         x = self.decoder4(x)                        # -> [batch, 128, 64, 64]
         x = self.decoder5(x)                        # -> [batch, 64, 128, 128]

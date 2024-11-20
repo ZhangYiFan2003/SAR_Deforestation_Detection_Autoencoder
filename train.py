@@ -12,7 +12,7 @@ parser = argparse.ArgumentParser(
     description='Main function to call training for different AutoEncoders')
 parser.add_argument('--batch-size', type=int, default=8, metavar='N',
                     help='input batch size for training (default: 128)')
-parser.add_argument('--epochs', type=int, default=20, metavar='N',
+parser.add_argument('--epochs', type=int, default=10, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='enables CUDA training')
@@ -24,7 +24,7 @@ parser.add_argument('--embedding-size', type=int, default=128, metavar='N',
                     help='embedding size for latent space') #16, 32, 64, ...
 parser.add_argument('--results_path', type=str, default='results/', metavar='N',
                     help='Where to store images')
-parser.add_argument('--model', type=str, default='VAE', metavar='N',
+parser.add_argument('--model', type=str, default='AE', metavar='N',
                     help='Which architecture to use')
 parser.add_argument('--dataset', type=str, default='FOREST', metavar='N',
                     help='Which dataset to use')
@@ -105,10 +105,7 @@ if __name__ == "__main__":
 
         except (KeyboardInterrupt, SystemExit):
             print("Manual Interruption")
-
-        # 在训练结束后，计算逐像素误差分布并保存对比图
-        #loss_analysis.train_and_validation_loss_distribution()
-        
+            
 #####################################################################################################################################################
 
     if args.test:
