@@ -5,6 +5,7 @@ from models.AE import AE
 from utils import get_interpolations
 from datasets import ProcessedForestDataLoader  
 from loss_distribution.loss_distribution_analyse import LossDistributionAnalysis
+from hyperparameter_optimize.optuna_objective import objective
 import optuna  
 
 
@@ -15,6 +16,8 @@ parser.add_argument('--train', action='store_true', default=True,
                     help='Choose whether to train the model')
 parser.add_argument('--test', action='store_true', default=True,
                     help='Choose whether to test the model with the latest saved weights')
+parser.add_argument('--use-optuna', action='store_true', default=False,
+                    help='Enable Optuna for hyperparameter optimization')
 
 #####################################################################################################################################################
 
@@ -40,8 +43,6 @@ parser.add_argument('--patience', type=int, default=5,
                     help='Patience for early stopping')
 parser.add_argument('--delta', type=float, default=0.01, 
                     help='Minimum change to qualify as improvement for early stopping')
-parser.add_argument('--use-optuna', action='store_true', default=True,
-                    help='Enable Optuna for hyperparameter optimization')
 
 #####################################################################################################################################################
 
@@ -93,39 +94,8 @@ if __name__ == "__main__":
 
     if args.train:
         if args.use_optuna:
-            def objective(trial):
-                # 建议超参数
-                lr = trial.suggest_loguniform('lr', 1e-5, 1e-2)
-                weight_decay = trial.suggest_loguniform('weight_decay', 1e-6, 1e-3)
-                step_size = trial.suggest_int('step_size', 1, 10)  
-                gamma = trial.suggest_uniform('gamma', 0.1, 0.9)  
-                embedding_size = trial.suggest_categorical('embedding_size', [128, 256])
-
-                # 用建议的超参数更新 args
-                args.lr = lr
-                args.weight_decay = weight_decay
-                args.step_size = step_size
-                args.gamma = gamma
-                args.embedding_size = embedding_size
-
-                # 使用新超参数重新初始化模型
-                autoenc = architectures[args.model]
-                autoenc.__init__(args)  # 重新初始化
-
-                # 训练循环
-                for epoch in range(1, args.epochs + 1):
-                    autoenc.train(epoch)
-                    should_stop, val_loss = autoenc.test(epoch)
-
-                    # 检查早停条件
-                    if should_stop:
-                        print("触发早停。训练终止。")
-                        break
-
-                return val_loss  # 返回验证损失以供优化
-
             study = optuna.create_study(direction='minimize')
-            study.optimize(objective, n_trials=10)
+            study.optimize(lambda trial: objective(trial, args, architectures), n_trials=5)
 
             print("最佳超参数: ", study.best_params)
             print("最佳验证损失: ", study.best_value)
