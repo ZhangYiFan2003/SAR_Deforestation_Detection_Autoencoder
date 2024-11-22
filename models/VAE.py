@@ -92,44 +92,43 @@ class VAE(object):
 
 #####################################################################################################################################################
 
-    def loss_function(self, recon_x, x, mu, logvar, sparsity_weight=0.001, max_value=10):
+    def loss_function(self, recon_x, x, mu, logvar, beta=0.001, max_value=10):
         """
-        计算自编码器的损失，包括MSE重构损失、KL散度和稀疏重构损失。
-        在计算过程中，检查并限制输入值的范围，以避免NaN或数值不稳定的情况。
+        优化后的损失函数，结合 β-VAE 策略，移除了稀疏性损失，确保数值稳定性。
 
         参数:
         - recon_x: 重构图像
         - x: 原始输入图像
         - mu: 潜在变量的均值
-        - logvar: 潜在变量的log方差
-        - sparsity_weight: 稀疏性损失的权重（默认为0.001，可根据需要调整）
+        - logvar: 潜在变量的对数方差
+        - beta: KLD 的权重因子
         - max_value: 限制重构图像和原始图像值范围的最大值
 
         返回:
         - total_loss: 总损失
         - MSE: 重构损失
-        - KLD: KL散度损失
-        - sparse_loss: 稀疏性损失
+        - KLD: KL 散度损失
         """
 
         # 1. 将重构图像和原始图像的值裁剪在合理范围内，避免极端值导致不稳定性
-        recon_x = torch.clamp(recon_x, -max_value, max_value).view(-1, 2 * 256 * 256)
-        x = torch.clamp(x, -max_value, max_value).view(-1, 2 * 256 * 256)
-
-        # 2. MSE重构损失
+        #recon_x = torch.clamp(recon_x, -max_value, max_value).view(-1, 2 * 256 * 256)
+        #x = torch.clamp(x, -max_value, max_value).view(-1, 2 * 256 * 256)
+        recon_x = recon_x.view(-1, 2 * 256 * 256)
+        x = x.view(-1, 2 * 256 * 256)
+        
+        # 2. MSE 重构损失
         MSE = F.mse_loss(recon_x, x, reduction='sum')
-
-        # 3. 稀疏性惩罚（L1正则化）
-        sparse_penalty = torch.sum(torch.abs(recon_x))
-        sparse_loss = sparsity_weight * sparse_penalty  # 适当调节权重
-
-        # 4. 对logvar进行裁剪，避免过大或过小值导致数值不稳定
+        
+        # 3. 对 logvar 进行裁剪，避免过大或过小值导致数值不稳定
         logvar = torch.clamp(logvar, min=-10, max=10)
+        
+        # 4. KL 散度损失
         KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-
-        # 合并损失
-        total_loss = MSE + KLD + sparse_loss
-
+        #KLD *= beta  # 动态调整 KLD 的权重
+        
+        # 5. 合并损失
+        total_loss = MSE + KLD
+        
         return total_loss, MSE, KLD
 
 #####################################################################################################################################################
@@ -139,14 +138,18 @@ class VAE(object):
             train_loss = 0
             train_recon_loss = 0
             train_kld_loss = 0
-
+            
+            # 定义 KL 退火策略：逐步增加 beta
+            total_epochs = self.args.epochs
+            beta = min(1.0, epoch / total_epochs)  # β 从 0 线性增加到 1
+            
             for batch_idx, data in enumerate(self.train_loader):
                 data = data.to(self.device)
                 self.optimizer.zero_grad()
 
                 # 前向传播
                 recon_batch, mu, logvar = self.model(data)
-                loss, recon_loss, kld_loss = self.loss_function(recon_batch, data, mu, logvar)
+                loss, recon_loss, kld_loss = self.loss_function(recon_batch, data, mu, logvar, beta=beta)
 
                 loss.backward()
                 train_loss += loss.item()

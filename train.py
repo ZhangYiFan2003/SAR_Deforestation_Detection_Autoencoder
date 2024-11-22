@@ -4,12 +4,23 @@ from models.VAE import VAE
 from models.AE import AE
 from utils import get_interpolations
 from datasets import ProcessedForestDataLoader  
-from loss_distribution.loss_distribution_analyse import LossDistributionAnalysis  
+from loss_distribution.loss_distribution_analyse import LossDistributionAnalysis
+from hyperparameter_optimize.optuna_objective import objective
+import optuna  
 
-#####################################################################################################################################################
+
 
 parser = argparse.ArgumentParser(
     description='Main function to call training for different AutoEncoders')
+parser.add_argument('--train', action='store_true', default=True,
+                    help='Choose whether to train the model')
+parser.add_argument('--test', action='store_true', default=True,
+                    help='Choose whether to test the model with the latest saved weights')
+parser.add_argument('--use-optuna', action='store_true', default=False,
+                    help='Enable Optuna for hyperparameter optimization')
+
+#####################################################################################################################################################
+
 parser.add_argument('--batch-size', type=int, default=8, metavar='N',
                     help='input batch size for training (default: 128)')
 parser.add_argument('--epochs', type=int, default=20, metavar='N',
@@ -24,28 +35,25 @@ parser.add_argument('--embedding-size', type=int, default=128, metavar='N',
                     help='embedding size for latent space') #16, 32, 64, ...
 parser.add_argument('--results_path', type=str, default='results/', metavar='N',
                     help='Where to store images')
-parser.add_argument('--model', type=str, default='VAE', metavar='N',
+parser.add_argument('--model', type=str, default='AE', metavar='N',
                     help='Which architecture to use')
 parser.add_argument('--dataset', type=str, default='FOREST', metavar='N',
                     help='Which dataset to use')
-parser.add_argument('--lr', type=float, default=1e-3, 
-                    help='Learning rate for the optimizer')
-parser.add_argument('--weight_decay', type=float, default=1e-4, 
-                    help='Weight decay for the optimizer')
-parser.add_argument('--step_size', type=int, default=3, 
-                    help='Step size for learning rate scheduler StepLR')
-parser.add_argument('--gamma', type=float, default=0.3, 
-                    help='Gamma for learning rate scheduler StepLR')
-parser.add_argument('--eta_min', type=float, default=1e-5,
-                    help='Minimum learning rate in scheduler CosineAnnealingLR')
-parser.add_argument('--patience', type=int, default=10, 
+parser.add_argument('--patience', type=int, default=5, 
                     help='Patience for early stopping')
 parser.add_argument('--delta', type=float, default=0.01, 
                     help='Minimum change to qualify as improvement for early stopping')
-parser.add_argument('--train', action='store_true', default=True,
-                    help='Choose whether to train the model (default: True)')
-parser.add_argument('--test', action='store_true', default=True,
-                    help='Choose whether to test the model with the latest saved weights (default: False)')
+
+#####################################################################################################################################################
+
+parser.add_argument('--lr', type=float, default=5e-4, 
+                    help='Learning rate for the optimizer')
+parser.add_argument('--weight_decay', type=float, default=1e-4, 
+                    help='Weight decay for the optimizer')
+parser.add_argument('--step_size', type=int, default=5, 
+                    help='Step size for learning rate scheduler StepLR')
+parser.add_argument('--gamma', type=float, default=0.5, 
+                    help='Gamma for learning rate scheduler StepLR')
 
 #####################################################################################################################################################
 
@@ -85,37 +93,48 @@ if __name__ == "__main__":
 #####################################################################################################################################################
 
     if args.train:
-        try:
-            if args.cuda:
-                print("Using GPU for training")
-            else:
-                print("Using CPU for training")
+        if args.use_optuna:
+            study = optuna.create_study(direction='minimize')
+            study.optimize(lambda trial: objective(trial, args, architectures), n_trials=5)
 
-            for epoch in range(1, args.epochs + 1):
-                autoenc.train(epoch)
-                should_stop = autoenc.test(epoch)  # 测试并检查EarlyStopping
+            print("最佳超参数: ", study.best_params)
+            print("最佳验证损失: ", study.best_value)
 
-                # 检查EarlyStopping条件
-                if should_stop:
-                    print("Early stopping triggered. Training terminated.")
-                    break  # 提前结束训练
-
-                # 保存模型权重
-                save_path = os.path.join(args.results_path, f'{args.model}_epoch_{epoch}.pth')
-                torch.save(autoenc.model.state_dict(), save_path)
-                print(f'Model weights saved at {save_path}')
-
-        except (KeyboardInterrupt, SystemExit):
-            print("Manual Interruption")
-
-        # 在训练结束后，计算逐像素误差分布并保存对比图
-        #loss_analysis.train_and_validation_loss_distribution()
+            # 保存最佳超参数
+            with open(os.path.join(args.results_path, 'best_hyperparameters.txt'), 'w') as f:
+                f.write(str(study.best_params))
         
+#####################################################################################################################################################
+
+        else:
+            try:
+                if args.cuda:
+                    print("Using GPU for training")
+                else:
+                    print("Using CPU for training")
+
+                for epoch in range(1, args.epochs + 1):
+                    autoenc.train(epoch)
+                    should_stop, val_loss = autoenc.test(epoch)  # 测试并检查EarlyStopping
+
+                    # 检查EarlyStopping条件
+                    if should_stop:
+                        print("Early stopping triggered. Training terminated.")
+                        break  # 提前结束训练
+
+                    # 保存模型权重
+                    save_path = os.path.join(args.results_path, f'{args.model}_epoch_{epoch}.pth')
+                    torch.save(autoenc.model.state_dict(), save_path)
+                    print(f'Model weights saved at {save_path}')
+
+            except (KeyboardInterrupt, SystemExit):
+                print("Manual Interruption")
+            
 #####################################################################################################################################################
 
     if args.test:
         # 加载 "best_model.pth" 模型权重
-        weight_path = os.path.join(args.results_path, "best_model.pth")
+        weight_path = os.path.join(args.results_path, "best_model.pth")#AE_epoch_10, VAE_epoch_10, best_model
         if not os.path.exists(weight_path):
             print("No weight file named 'best_model.pth' found for testing.")
             sys.exit()

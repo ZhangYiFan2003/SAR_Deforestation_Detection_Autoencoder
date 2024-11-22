@@ -48,11 +48,6 @@ class AE(object):
         self.model = AE_Network(args)
         self.model.to(self.device)
         
-        """
-        self.optimizer = optim.AdamW(self.model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=args.epochs, eta_min=args.eta_min)
-        """
-        
         self.optimizer = optim.Adam(self.model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=args.step_size, gamma=args.gamma)
         
@@ -105,32 +100,28 @@ class AE(object):
         self.writer.add_scalar('Loss/train', avg_loss, epoch)
         self.scheduler.step()
         
-        #self.loss_analysis.calculate_pixelwise_loss_distribution(self.train_loader, 'Train', epoch)
-        
         self.writer.flush()
 
 #####################################################################################################################################################
 
     def test(self, epoch):
         self.model.eval()
-        test_loss = 0
+        validation_loss = 0
         with torch.no_grad():
             for data in self.validation_loader:
                 data = data.to(self.device)
                 recon_batch = self.model(data)
-                test_loss += self.loss_function(recon_batch, data).item()
+                validation_loss += self.loss_function(recon_batch, data).item()
 
-        avg_test_loss = test_loss / len(self.validation_loader.dataset)
-        print(f'====> validation set loss: {avg_test_loss:.4f}')
-        
-        self.writer.add_scalar('Loss/validation', avg_test_loss, epoch)
-        
-        #self.loss_analysis.calculate_pixelwise_loss_distribution(self.test_loader, 'Test', epoch)
-        
+        avg_validation_loss = validation_loss / len(self.validation_loader.dataset)
+        print(f'====> Validation set loss: {avg_validation_loss:.4f}')
+
+        self.writer.add_scalar('Loss/validation', avg_validation_loss, epoch)
+
         self.writer.flush()
-        
-        self.early_stopping(avg_test_loss, self.model)
+
+        self.early_stopping(avg_validation_loss, self.model)
         if self.early_stopping.early_stop:
             print("Early stopping")
-            return True
-        return False
+            return True, avg_validation_loss
+        return False, avg_validation_loss
