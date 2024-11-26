@@ -1,3 +1,3 @@
 # SAR_Deforestation_Detection_Autoencoder
 
-![Alt Text](https://imgur.com/a/bJWH7nq)
+![Model Structure](https://i.imgur.com/TCIuQc9.png)
