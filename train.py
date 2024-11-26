@@ -1,15 +1,14 @@
 import argparse, os, sys
 import torch
+import optuna
 from models.VAE import VAE
 from models.AE import AE
 from utils import get_interpolations
 from datasets import ProcessedForestDataLoader  
 from loss_distribution.loss_distribution_analyse import LossDistributionAnalysis
 from hyperparameter_optimize.optuna_objective import objective
-import optuna  
 
-
-
+# Command-line arguments for training and testing options
 parser = argparse.ArgumentParser(
     description='Main function to call training for different AutoEncoders')
 parser.add_argument('--train', action='store_true', default=True,
@@ -21,9 +20,10 @@ parser.add_argument('--use-optuna', action='store_true', default=False,
 
 #####################################################################################################################################################
 
+# Training hyperparameters
 parser.add_argument('--batch-size', type=int, default=8, metavar='N',
                     help='input batch size for training (default: 128)')
-parser.add_argument('--epochs', type=int, default=20, metavar='N',
+parser.add_argument('--epochs', type=int, default=10, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='enables CUDA training')
@@ -46,21 +46,24 @@ parser.add_argument('--delta', type=float, default=0.01,
 
 #####################################################################################################################################################
 
-parser.add_argument('--lr', type=float, default=5e-4, 
+# Optimizer hyperparameters
+parser.add_argument('--lr', type=float, default=0.00011674956207899162, 
                     help='Learning rate for the optimizer')
-parser.add_argument('--weight_decay', type=float, default=1e-4, 
+parser.add_argument('--weight_decay', type=float, default=3.7146436941044483e-06, 
                     help='Weight decay for the optimizer')
 parser.add_argument('--step_size', type=int, default=5, 
                     help='Step size for learning rate scheduler StepLR')
-parser.add_argument('--gamma', type=float, default=0.5, 
+parser.add_argument('--gamma', type=float, default=0.7, 
                     help='Gamma for learning rate scheduler StepLR')
 
 #####################################################################################################################################################
 
+# Parse arguments and set up device
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 torch.manual_seed(args.seed)
 
+# Instantiate models
 vae = VAE(args)
 ae = AE(args)
 architectures = {'AE': ae,
@@ -73,11 +76,13 @@ data_loader = ProcessedForestDataLoader(args)
 
 if __name__ == "__main__":
 
+    # Create results directory if it doesn't exist
     try:
         os.stat(args.results_path)
     except:
         os.mkdir(args.results_path)
 
+    # Select model architecture
     try:
         autoenc = architectures[args.model]
     except KeyError:
@@ -86,7 +91,7 @@ if __name__ == "__main__":
         print('---------------------------------------------------------')
         sys.exit()
 
-    # 实例化 LossDistributionAnalysis
+    # Instantiate LossDistributionAnalysis
     loss_analysis = LossDistributionAnalysis(autoenc.model, data_loader.train_loader, 
                                              data_loader.validation_loader, data_loader.test_loader, autoenc.device, args)
 
@@ -94,13 +99,14 @@ if __name__ == "__main__":
 
     if args.train:
         if args.use_optuna:
+            # Perform hyperparameter optimization using Optuna
             study = optuna.create_study(direction='minimize')
-            study.optimize(lambda trial: objective(trial, args, architectures), n_trials=5)
+            study.optimize(lambda trial: objective(trial, args, architectures), n_trials=10)
 
-            print("最佳超参数: ", study.best_params)
-            print("最佳验证损失: ", study.best_value)
+            print("Best hyperparameters: ", study.best_params)
+            print("Best validation loss: ", study.best_value)
 
-            # 保存最佳超参数
+            # Save the best hyperparameters
             with open(os.path.join(args.results_path, 'best_hyperparameters.txt'), 'w') as f:
                 f.write(str(study.best_params))
         
@@ -115,14 +121,15 @@ if __name__ == "__main__":
 
                 for epoch in range(1, args.epochs + 1):
                     autoenc.train(epoch)
-                    should_stop, val_loss = autoenc.test(epoch)  # 测试并检查EarlyStopping
+                    # Test and check EarlyStopping
+                    should_stop, val_loss = autoenc.test(epoch)  
 
-                    # 检查EarlyStopping条件
+                    # Check EarlyStopping conditions, Terminate training early
                     if should_stop:
                         print("Early stopping triggered. Training terminated.")
-                        break  # 提前结束训练
+                        break  
 
-                    # 保存模型权重
+                    # Save model weights
                     save_path = os.path.join(args.results_path, f'{args.model}_epoch_{epoch}.pth')
                     torch.save(autoenc.model.state_dict(), save_path)
                     print(f'Model weights saved at {save_path}')
@@ -133,13 +140,13 @@ if __name__ == "__main__":
 #####################################################################################################################################################
 
     if args.test:
-        # 加载 "best_model.pth" 模型权重
-        weight_path = os.path.join(args.results_path, "best_model.pth")#AE_epoch_10, VAE_epoch_10, best_model
+        # Load model weights from specified file
+        weight_path = os.path.join(args.results_path, "AE_epoch_10.pth")#AE_epoch_10, VAE_epoch_10, best_model
         if not os.path.exists(weight_path):
             print("No weight file named 'best_model.pth' found for testing.")
             sys.exit()
 
-        # 加载模型时注意模型类型
+        # Ensure the correct model type is used when loading the model
         if args.model == 'VAE':
             autoenc = architectures['VAE']
         elif args.model == 'AE':
@@ -148,15 +155,15 @@ if __name__ == "__main__":
             print("Unsupported model type.")
             sys.exit()
 
-        # 使用 `torch.load()` 并显式设置 `map_location`
+        # Load state dictionary using `torch.load()` and set `map_location` to device
         state_dict = torch.load(weight_path, weights_only=True, map_location=autoenc.device)
         autoenc.model.load_state_dict(state_dict)
         print(f'Loaded weights from {weight_path}')
         
-        # 使用测试集进行评估
+        # Evaluate using the test dataset
         if data_loader.test_loader is None:
             print("Test loader is not initialized. Please use --add-deforestation-test to add test dataset.")
             sys.exit()
         
-        # 使用封装后的方法进行逐像素误差分布测试和绘图
+        # test and plot mse error per-pixel distribution
         loss_analysis.train_and_validation_and_test_loss_distribution()

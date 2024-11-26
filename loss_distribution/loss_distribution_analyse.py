@@ -102,35 +102,27 @@ class LossDistributionAnalysis:
             'model': self.args.model,
             'step_size': self.args.step_size,
             'gamma': self.args.gamma
-            # 可以根据需要添加更多超参数
         }
-        
-        # 绘制训练集和测试集的逐像素误差分布直方图
+        """
+        # 绘制训练集逐像素误差分布直方图
         train_plot_path = os.path.join(self.args.results_path, 'train_pixelwise_mse_distribution.png')
         self._plot_histogram(train_pixel_losses, 'Train Pixel-wise MSE Distribution', 'MSE per Pixel', 'Frequency', 
                              train_plot_path, hyperparameters, color='blue')
         
+        # 绘制验证集的逐像素误差分布直方图
         validation_plot_path = os.path.join(self.args.results_path, 'validation_pixelwise_mse_distribution.png')
         self._plot_histogram(validation_pixel_losses, 'Validation Pixel-wise MSE Distribution', 'MSE per Pixel', 'Frequency', 
                              validation_plot_path, hyperparameters, color='red')
         
-        # 绘制并保存MSE损失的频率分布
+        # 绘制测试集的逐像素误差分布直方图
         plot_path = os.path.join(self.args.results_path, 'test_pixelwise_mse_distribution.png')
         self._plot_histogram(test_pixel_losses, 'Test Pixel-wise MSE Distribution', 'MSE per Pixel', 'Frequency', 
                              plot_path, hyperparameters, color='green')
-        
+        """
         # 计算训练集误差的统计特征（均值和标准差）
         train_mean = np.mean(train_pixel_losses)
         train_std = np.std(train_pixel_losses)
         print(f"Train Pixel-wise MSE - Mean: {train_mean:.6f}, Std: {train_std:.6f}")
-        
-        """
-        # 使用正态分布计算指定置信区间的异常阈值（例如99%置信区间）
-        confidence_level = 0.99
-        z_score = norm.ppf(confidence_level)
-        anomaly_threshold = train_mean + z_score * train_std
-        print(f"Anomaly detection threshold (99% confidence interval): {anomaly_threshold:.6f}")
-        """
         
         anomaly_threshold = np.quantile(train_pixel_losses, 0.99)
         
@@ -139,7 +131,7 @@ class LossDistributionAnalysis:
         
         # 调用重构和差异分析方法
         self._reconstruct_and_analyze_images(anomaly_threshold, image_index=test_image_index)
-        self._compare_pixel_mse_histograms(val_image_index=val_image_index, test_image_index=test_image_index)
+        #self._compare_pixel_mse_histograms(val_image_index=val_image_index, test_image_index=test_image_index)
 
 #####################################################################################################################################################
 
@@ -201,27 +193,27 @@ class LossDistributionAnalysis:
             norm_pixel_loss = (pixel_loss_sum - min_loss) / (max_loss - min_loss + 1e-8)
 
             # 可视化异常检测结果（包括热力图）
-            plt.figure(figsize=(18, 6))
+            plt.figure(figsize=(12, 6))
 
             # 原始图像
-            plt.subplot(1, 3, 1)
+            plt.subplot(1, 2, 1)
             plt.imshow(original_img[0], cmap='gray')
             plt.title('Original Image')
             plt.axis('off')
-
-            # 异常检测图
-            plt.subplot(1, 3, 2)
-            plt.imshow(anomaly_map, cmap='hot')
-            plt.title('Anomaly Map')
-            plt.axis('off')
-
+            
             # 热力图
-            plt.subplot(1, 3, 3)
+            plt.subplot(1, 2, 2)
             plt.imshow(norm_pixel_loss, cmap='magma', vmin=0, vmax=1.0)
             plt.colorbar(label='Normalized MSE Loss')
             plt.title('Anomaly Heat Map')
             plt.axis('off')
-
+            """
+            # 异常检测图
+            plt.subplot(1, 3, 3)
+            plt.imshow(anomaly_map, cmap='hot')
+            plt.title('Anomaly Map')
+            plt.axis('off')
+            """
             # 保存结果
             vis_save_path = os.path.join(self.args.results_path, 'anomaly_detection_result_with_heatmap.png')
             plt.tight_layout()

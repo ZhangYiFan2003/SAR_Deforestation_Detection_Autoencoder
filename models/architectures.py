@@ -12,13 +12,13 @@ class ResidualBlock(nn.Module):
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
         self.downsample = downsample
-        self.dropout = nn.Dropout(p=0.3)
+        #self.dropout = nn.Dropout(p=0.1)
 
     def forward(self, x):
         identity = x
         out = self.conv1(x)
         out = self.bn1(out)
-        out = self.dropout(out)  # 在 BatchNorm 后添加 Dropout
+        out = nn.LeakyReLU(negative_slope=0.01, inplace=True)(out)
         out = self.conv2(out)
         out = self.bn2(out)
         
@@ -238,11 +238,57 @@ decoder = CNN_Decoder(embedding_size, input_size)
 x = torch.randn(batch_size, *input_size)
 
 # 前向传播测试
-encoded, features = encoder(x)
-decoded = decoder(encoded, features)
+encoded, fpn_features = encoder(x)
 
-# 打印各个张量的形状
-print(f"Input shape: {x.shape}")
-print(f"Encoded shape: {encoded.shape}")
-print(f"Decoded shape: {decoded.shape}")
+# 打印每个 FPN 特征图的形状
+print("FPN Feature Shapes:")
+for i, feature in enumerate(fpn_features):
+    print(f"p{i+2}: {feature.shape}")
+
+# 验证解码器的输入是否匹配 FPN 特征图
+decoded_input = torch.randn(batch_size, embedding_size)  # 模拟解码器的输入
+fpn_shapes_match = True
+
+# 解码器前向传播，逐步打印各阶段形状
+x = decoder.fc(decoded_input)  # 全连接层
+x = x.view(-1, 256, 4, 4)      # 调整为特征图大小
+print(f"Decoder Initial Shape: {x.shape}")
+
+# 解码器阶段测试
+x = decoder.decoder1(x)        # -> [batch, 256, 8, 8]
+print(f"Decoder Stage 1 Shape: {x.shape}, FPN Feature p4 Shape: {fpn_features[1].shape}")
+if x.shape != fpn_features[1].shape:
+    print("Shape mismatch at Decoder Stage 1 with FPN Feature p4!")
+    fpn_shapes_match = False
+x = x + fpn_features[1]
+
+x = decoder.decoder2(x)        # -> [batch, 256, 16, 16]
+print(f"Decoder Stage 2 Shape: {x.shape}, FPN Feature p3 Shape: {fpn_features[2].shape}")
+if x.shape != fpn_features[2].shape:
+    print("Shape mismatch at Decoder Stage 2 with FPN Feature p3!")
+    fpn_shapes_match = False
+x = x + fpn_features[2]
+
+x = decoder.decoder3(x)        # -> [batch, 256, 32, 32]
+print(f"Decoder Stage 3 Shape: {x.shape}, FPN Feature p2 Shape: {fpn_features[3].shape}")
+if x.shape != fpn_features[3].shape:
+    print("Shape mismatch at Decoder Stage 3 with FPN Feature p2!")
+    fpn_shapes_match = False
+
+# 继续解码器后续阶段
+x = decoder.decoder4(x)        # -> [batch, 128, 64, 64]
+print(f"Decoder Stage 4 Shape: {x.shape}")
+x = decoder.decoder5(x)        # -> [batch, 64, 128, 128]
+print(f"Decoder Stage 5 Shape: {x.shape}")
+x = decoder.decoder6(x)        # -> [batch, 32, 256, 256]
+print(f"Decoder Stage 6 Shape: {x.shape}")
+
+x = decoder.final(x)           # -> [batch, 2, 256, 256]
+print(f"Final Decoded Output Shape: {x.shape}")
+
+# 输出匹配结果
+if fpn_shapes_match:
+    print("All FPN features match decoder input sizes correctly.")
+else:
+    print("Mismatch found between FPN features and decoder input sizes.")
 """
