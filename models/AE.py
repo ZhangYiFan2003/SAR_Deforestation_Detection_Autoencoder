@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 sys.path.append('../')
 from models.architectures import CNN_Encoder, CNN_Decoder
-from datasets import ProcessedForestDataLoader
+from datasets.datasets import ProcessedForestDataLoader
 from loss_distribution.loss_distribution_analyse import LossDistributionAnalysis
 from early_stop.early_stopping import EarlyStopping
 

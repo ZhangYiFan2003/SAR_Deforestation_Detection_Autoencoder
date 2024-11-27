@@ -3,15 +3,14 @@ import torch
 import optuna
 from models.VAE import VAE
 from models.AE import AE
-from utils import get_interpolations
-from datasets import ProcessedForestDataLoader  
+from datasets.datasets import ProcessedForestDataLoader  
 from loss_distribution.loss_distribution_analyse import LossDistributionAnalysis
 from hyperparameter_optimize.optuna_objective import objective
 
 # Command-line arguments for training and testing options
 parser = argparse.ArgumentParser(
     description='Main function to call training for different AutoEncoders')
-parser.add_argument('--train', action='store_true', default=True,
+parser.add_argument('--train', action='store_true', default=False,
                     help='Choose whether to train the model')
 parser.add_argument('--test', action='store_true', default=True,
                     help='Choose whether to test the model with the latest saved weights')
@@ -23,7 +22,7 @@ parser.add_argument('--use-optuna', action='store_true', default=False,
 # Training hyperparameters
 parser.add_argument('--batch-size', type=int, default=8, metavar='N',
                     help='input batch size for training (default: 128)')
-parser.add_argument('--epochs', type=int, default=10, metavar='N',
+parser.add_argument('--epochs', type=int, default=15, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='enables CUDA training')
@@ -141,7 +140,7 @@ if __name__ == "__main__":
 
     if args.test:
         # Load model weights from specified file
-        weight_path = os.path.join(args.results_path, "AE_epoch_10.pth")#AE_epoch_10, VAE_epoch_10, best_model
+        weight_path = os.path.join(args.results_path, "AE_epoch_15.pth")#AE_epoch_10, VAE_epoch_10, best_model
         if not os.path.exists(weight_path):
             print("No weight file named 'best_model.pth' found for testing.")
             sys.exit()
