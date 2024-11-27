@@ -11,9 +11,9 @@ def remove_invalid_tif_files(tiff_dir):
     """
     # 获取所有 tiff 文件
     tiff_files = [f for f in os.listdir(tiff_dir) if f.endswith('.tif')]
-
+    
     removed_files = 0
-
+    
     for tiff_file in tiff_files:
         tiff_path = os.path.join(tiff_dir, tiff_file)
         
@@ -24,7 +24,7 @@ def remove_invalid_tif_files(tiff_dir):
             # 检查最小值和最大值
             img_min = np.min(img)
             img_max = np.max(img)
-
+            
             if img_min == 0 and img_max == 0:
                 print(f"文件 {tiff_file} 的最大值和最小值都为 0，删除该文件。")
                 os.remove(tiff_path)  # 删除文件

@@ -1,16 +1,12 @@
 import sys
-import os
-import numpy as np
-
 import torch
 import torch.utils.data
 from torch import nn, optim
 from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
-from pytorch_msssim import ssim, ms_ssim, SSIM  # 导入SSIM模块
 
 sys.path.append('../')
-from models.architectures import CNN_Encoder, CNN_Decoder
+from models.architectures import Encoder, Decoder
 from datasets.datasets import ProcessedForestDataLoader
 from loss_distribution.loss_distribution_analyse import LossDistributionAnalysis
 from early_stop.early_stopping import EarlyStopping
@@ -20,39 +16,43 @@ from early_stop.early_stopping import EarlyStopping
 class Network(nn.Module):
     def __init__(self, args):
         super(Network, self).__init__()
-        output_size = 512  # Intermediate feature size
-        self.encoder = CNN_Encoder(output_size)
+        # Dimension of intermediate features
+        output_size = 512  
+        # Initialize the encoder model
+        self.encoder = Encoder(output_size) 
         
-        # 将编码器输出映射到潜在空间的均值和方差参数
+        # Define layers to map encoder output to latent space parameters (mean and variance)
         self.fc_mu = nn.Linear(output_size, args.embedding_size)
         self.fc_var = nn.Linear(output_size, args.embedding_size)
         
-        # 初始化解码器
-        self.decoder = CNN_Decoder(args.embedding_size)
-
+        # Initialize the decoder model
+        self.decoder = Decoder(args.embedding_size)
+    
     def encode(self, x):
-        # 获取编码器输出和跳跃连接的特征
+        # Obtain encoder outputs and skip-connection features
         features, encoder_features = self.encoder(x)
+        # Compute mean
         mu = self.fc_mu(features)
+        # Compute log-variance
         logvar = self.fc_var(features)
         return mu, logvar, encoder_features
-
+    
     def reparameterize(self, mu, logvar):
+        # Apply reparameterization trick during training
         if self.training:
             std = torch.exp(0.5 * logvar)
             eps = torch.randn_like(std)
             return mu + eps * std
         return mu
-
+    
     def decode(self, z, encoder_features):
-        # 使用 z 和 encoder_features 解码
+        # Decode latent variable `z` along with skip-connection features
         return self.decoder(z, encoder_features)
-
+    
     def forward(self, x):
-        # 编码，生成 z 及 encoder_features
+        # Forward pass: Encode input, reparameterize, and decode
         mu, logvar, encoder_features = self.encode(x)
         z = self.reparameterize(mu, logvar)
-        # 解码并返回重建的结果
         return self.decode(z, encoder_features), mu, logvar
 
 #####################################################################################################################################################
@@ -65,17 +65,16 @@ class VAE(object):
         self.train_loader = self.data.train_loader
         self.validation_loader = self.data.validation_loader
         self.test_loader = self.data.test_loader
-
+        
         self.model = Network(args)
         self.model.to(self.device)
+        
         self.optimizer = optim.Adam(self.model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-        
-        # 初始化学习率调度器，step_size=10表示每10个epoch学习率衰减一次，gamma=0.5表示学习率每次衰减到原来的50%
+        # Learning rate scheduler to adjust learning rate at regular intervals
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=args.step_size, gamma=args.gamma)
-        
-        # EarlyStopping对象的实例化
+        # EarlyStopping to halt training when validation performance stops improving
         self.early_stopping = EarlyStopping(patience=args.patience, delta=args.delta, path=args.results_path + '/best_model.pth')
-        
+        # TensorBoard SummaryWriter for logging metrics and visualizations
         self.writer = SummaryWriter(log_dir=args.results_path + '/logs')
         
         self.loss_analysis = LossDistributionAnalysis(model=self.model, train_loader=self.train_loader,validation_loader=self.validation_loader,
@@ -84,6 +83,7 @@ class VAE(object):
 #####################################################################################################################################################
 
     def _init_dataset(self):
+        # Initialize dataset loader
         if self.args.dataset == 'FOREST':
             self.data = ProcessedForestDataLoader(self.args)
         else:
@@ -94,39 +94,38 @@ class VAE(object):
 
     def loss_function(self, recon_x, x, mu, logvar, beta=0.001, max_value=10):
         """
-        优化后的损失函数，结合 β-VAE 策略，移除了稀疏性损失，确保数值稳定性。
-
-        参数:
-        - recon_x: 重构图像
-        - x: 原始输入图像
-        - mu: 潜在变量的均值
-        - logvar: 潜在变量的对数方差
-        - beta: KLD 的权重因子
-        - max_value: 限制重构图像和原始图像值范围的最大值
-
-        返回:
-        - total_loss: 总损失
-        - MSE: 重构损失
-        - KLD: KL 散度损失
+        Custom loss function that combines β-VAE strategy.
+        Balances reconstruction loss (MSE) and KL divergence (KLD).
+        
+        Args:
+        - recon_x: Reconstructed images
+        - x: Original input images
+        - mu: Latent mean
+        - logvar: Latent log-variance
+        - beta: Weight for KLD
+        - max_value: Maximum value range for clamping
+        
+        Returns:
+        - total_loss: Combined loss
+        - MSE: Reconstruction loss
+        - KLD: KL divergence loss
         """
-
-        # 1. 将重构图像和原始图像的值裁剪在合理范围内，避免极端值导致不稳定性
-        #recon_x = torch.clamp(recon_x, -max_value, max_value).view(-1, 2 * 256 * 256)
-        #x = torch.clamp(x, -max_value, max_value).view(-1, 2 * 256 * 256)
+        
+        # Reshape inputs for computing MSE
         recon_x = recon_x.view(-1, 2 * 256 * 256)
         x = x.view(-1, 2 * 256 * 256)
         
-        # 2. MSE 重构损失
+        # MSE loss for reconstruction
         MSE = F.mse_loss(recon_x, x, reduction='sum')
         
-        # 3. 对 logvar 进行裁剪，避免过大或过小值导致数值不稳定
+        # Clamp logvar to ensure numerical stability
         logvar = torch.clamp(logvar, min=-10, max=10)
         
-        # 4. KL 散度损失
+        # KL divergence loss
         KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-        #KLD *= beta  # 动态调整 KLD 的权重
+        #KLD *= beta #havent solve the problem about the gradient
         
-        # 5. 合并损失
+        # Combine losses
         total_loss = MSE + KLD
         
         return total_loss, MSE, KLD
@@ -139,40 +138,45 @@ class VAE(object):
             train_recon_loss = 0
             train_kld_loss = 0
             
-            # 定义 KL 退火策略：逐步增加 beta
+            # Define KL annealing schedule: Linearly increase β from 0 to 1 over epochs
             total_epochs = self.args.epochs
-            beta = min(1.0, epoch / total_epochs)  # β 从 0 线性增加到 1
+            # Linear increase
+            beta = min(1.0, epoch / total_epochs)  
             
             for batch_idx, data in enumerate(self.train_loader):
                 data = data.to(self.device)
+                # Clear gradients
                 self.optimizer.zero_grad()
-
-                # 前向传播
+                
+                # Forward pass
                 recon_batch, mu, logvar = self.model(data)
                 loss, recon_loss, kld_loss = self.loss_function(recon_batch, data, mu, logvar, beta=beta)
-
+                
+                # Backpropagation
                 loss.backward()
                 train_loss += loss.item()
                 train_recon_loss += recon_loss.item()
                 train_kld_loss += kld_loss.item()
-
+                
+                # Update weights
                 self.optimizer.step()
-
+                
+                # Log training progress at intervals
                 if batch_idx % self.args.log_interval == 0:
                     print(f'Train Epoch: {epoch} [{batch_idx * len(data)}/{len(self.train_loader.dataset)} '
                         f'({100. * batch_idx / len(self.train_loader):.0f}%)]\tLoss: {loss.item() / len(data):.6f}\t'
                         f'Recon: {recon_loss.item() / len(data):.6f}\tKLD: {kld_loss.item() / len(data):.6f}')
-
+            
             avg_loss = train_loss / len(self.train_loader.dataset)
             avg_mse_loss = train_recon_loss / len(self.train_loader.dataset)
             print(f'====> Epoch: {epoch} Average train loss: {avg_loss:.4f}')
             print(f'====> Epoch: {epoch} Average train mse loss: {avg_mse_loss:.4f}')
             
-            # 记录损失和学习率
+            # Log losses and learning rate to TensorBoard
             self.writer.add_scalar('Loss/train', avg_loss, epoch)
             self.writer.add_scalar('Learning Rate', self.optimizer.param_groups[0]['lr'], epoch)
-
-            # 更新学习率
+            
+            # Update learning rate using the scheduler
             self.scheduler.step()
 
 #####################################################################################################################################################
@@ -191,22 +195,23 @@ class VAE(object):
                 test_loss += loss.item()
                 test_recon_loss += recon_loss.item()
                 test_kld_loss += kld_loss.item()
-
+        
+        # Compute average losses
         avg_loss = test_loss / len(self.validation_loader.dataset)
         avg_recon_loss = test_recon_loss / len(self.validation_loader.dataset)
         avg_kld_loss = test_kld_loss / len(self.validation_loader.dataset)
         
         print(f'====> Validation set loss: {avg_loss:.4f}\tRecon: {avg_recon_loss:.4f}\tKLD: {avg_kld_loss:.4f}')
         
-        # Log metrics to tensorboard
+        # Log validation metrics to TensorBoard
         self.writer.add_scalar('Loss/validation/total', avg_loss, epoch)
         self.writer.add_scalar('Loss/validation/recon', avg_recon_loss, epoch)
         self.writer.add_scalar('Loss/validation/kld', avg_kld_loss, epoch)
-
-        # 调用EarlyStopping监控
+        
+        # Use EarlyStopping to monitor validation loss
         self.early_stopping(avg_loss, self.model)
         
-        # 若满足EarlyStopping条件，停止训练
+        # Stop training if early stopping condition is met
         if self.early_stopping.early_stop:
             print("Early stopping")
             return True

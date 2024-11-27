@@ -10,12 +10,12 @@ from hyperparameter_optimize.optuna_objective import objective
 # Command-line arguments for training and testing options
 parser = argparse.ArgumentParser(
     description='Main function to call training for different AutoEncoders')
+parser.add_argument('--use-optuna', action='store_true', default=False,
+                    help='Enable Optuna for hyperparameter optimization')
 parser.add_argument('--train', action='store_true', default=False,
                     help='Choose whether to train the model')
 parser.add_argument('--test', action='store_true', default=True,
                     help='Choose whether to test the model with the latest saved weights')
-parser.add_argument('--use-optuna', action='store_true', default=False,
-                    help='Enable Optuna for hyperparameter optimization')
 
 #####################################################################################################################################################
 
@@ -31,7 +31,7 @@ parser.add_argument('--seed', type=int, default=42, metavar='S',
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
 parser.add_argument('--embedding-size', type=int, default=128, metavar='N',
-                    help='embedding size for latent space') #16, 32, 64, ...
+                    help='embedding size for latent space') 
 parser.add_argument('--results_path', type=str, default='results/', metavar='N',
                     help='Where to store images')
 parser.add_argument('--model', type=str, default='AE', metavar='N',
@@ -80,7 +80,7 @@ if __name__ == "__main__":
         os.stat(args.results_path)
     except:
         os.mkdir(args.results_path)
-
+        
     # Select model architecture
     try:
         autoenc = architectures[args.model]
@@ -89,7 +89,7 @@ if __name__ == "__main__":
         print('Model architecture not supported. ', end='')
         print('---------------------------------------------------------')
         sys.exit()
-
+        
     # Instantiate LossDistributionAnalysis
     loss_analysis = LossDistributionAnalysis(autoenc.model, data_loader.train_loader, 
                                              data_loader.validation_loader, data_loader.test_loader, autoenc.device, args)
@@ -101,10 +101,10 @@ if __name__ == "__main__":
             # Perform hyperparameter optimization using Optuna
             study = optuna.create_study(direction='minimize')
             study.optimize(lambda trial: objective(trial, args, architectures), n_trials=10)
-
+            
             print("Best hyperparameters: ", study.best_params)
             print("Best validation loss: ", study.best_value)
-
+            
             # Save the best hyperparameters
             with open(os.path.join(args.results_path, 'best_hyperparameters.txt'), 'w') as f:
                 f.write(str(study.best_params))
@@ -117,22 +117,22 @@ if __name__ == "__main__":
                     print("Using GPU for training")
                 else:
                     print("Using CPU for training")
-
+                
                 for epoch in range(1, args.epochs + 1):
                     autoenc.train(epoch)
                     # Test and check EarlyStopping
                     should_stop, val_loss = autoenc.test(epoch)  
-
+                    
                     # Check EarlyStopping conditions, Terminate training early
                     if should_stop:
                         print("Early stopping triggered. Training terminated.")
                         break  
-
+                    
                     # Save model weights
                     save_path = os.path.join(args.results_path, f'{args.model}_epoch_{epoch}.pth')
                     torch.save(autoenc.model.state_dict(), save_path)
                     print(f'Model weights saved at {save_path}')
-
+            
             except (KeyboardInterrupt, SystemExit):
                 print("Manual Interruption")
             
@@ -140,11 +140,11 @@ if __name__ == "__main__":
 
     if args.test:
         # Load model weights from specified file
-        weight_path = os.path.join(args.results_path, "AE_epoch_15.pth")#AE_epoch_10, VAE_epoch_10, best_model
+        weight_path = os.path.join(args.results_path, "AE_epoch_14.pth")#AE_epoch_10, VAE_epoch_10, best_model
         if not os.path.exists(weight_path):
             print("No weight file named 'best_model.pth' found for testing.")
             sys.exit()
-
+        
         # Ensure the correct model type is used when loading the model
         if args.model == 'VAE':
             autoenc = architectures['VAE']
@@ -153,7 +153,7 @@ if __name__ == "__main__":
         else:
             print("Unsupported model type.")
             sys.exit()
-
+        
         # Load state dictionary using `torch.load()` and set `map_location` to device
         state_dict = torch.load(weight_path, weights_only=True, map_location=autoenc.device)
         autoenc.model.load_state_dict(state_dict)
