@@ -1,9 +1,5 @@
-import sys
 import torch
 import torch.utils.data
-from torch import nn, optim
-from torch.nn import functional as F
-from torch.utils.tensorboard import SummaryWriter
 
 #####################################################################################################################################################
 

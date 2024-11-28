@@ -13,9 +13,9 @@ from early_stop.early_stopping import EarlyStopping
 
 #####################################################################################################################################################
 
-class Network(nn.Module):
+class VAE_Network(nn.Module):
     def __init__(self, args):
-        super(Network, self).__init__()
+        super(VAE_Network, self).__init__()
         # Dimension of intermediate features
         output_size = 512  
         # Initialize the encoder model
@@ -66,7 +66,7 @@ class VAE(object):
         self.validation_loader = self.data.validation_loader
         self.test_loader = self.data.test_loader
         
-        self.model = Network(args)
+        self.model = VAE_Network(args)
         self.model.to(self.device)
         
         self.optimizer = optim.Adam(self.model.parameters(), lr=args.lr, weight_decay=args.weight_decay)

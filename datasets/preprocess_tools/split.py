@@ -2,37 +2,37 @@
 import os
 import numpy as np
 from PIL import Image
-import tifffile as tiff  # 使用 tifffile 库来保存多通道 tiff 文件
+import tifffile as tiff  
 
 def split_and_fuse_images(vv_dir, vh_dir, output_dir, tile_size=256):
-    # 确保输出目录存在
+    # Ensure the output directory exists
     os.makedirs(output_dir, exist_ok=True)
     
     vv_files = sorted([f for f in os.listdir(vv_dir) if f.endswith('.tif')])
     vh_files = sorted([f for f in os.listdir(vh_dir) if f.endswith('.tif')])
     
-    assert len(vv_files) == len(vh_files), "VV 和 VH 文件数量不一致"
+    assert len(vv_files) == len(vh_files), "Mismatch in the number of VV and VH files"
     
-    for idx in range(0, len(vv_files) - 1):  # 这里使用 -1 确保可以获取两个时间点
-        # 当前时间点的文件
+    for idx in range(0, len(vv_files) - 1):  # Use -1 to ensure two time points can be retrieved
+        # Current time point files
         vv_file_1 = vv_files[idx]
         vh_file_1 = vh_files[idx]
-        # 下一个时间点的文件
+        # Next time point files
         vv_file_2 = vv_files[idx + 1]
         vh_file_2 = vh_files[idx + 1]
         
-        # 加载四个图像
+        # Load four images
         vv_image_1 = np.array(Image.open(os.path.join(vv_dir, vv_file_1)))
         vh_image_1 = np.array(Image.open(os.path.join(vh_dir, vh_file_1)))
         vv_image_2 = np.array(Image.open(os.path.join(vv_dir, vv_file_2)))
         vh_image_2 = np.array(Image.open(os.path.join(vh_dir, vh_file_2)))
         
-        # 检查图像大小是否一致，不一致则跳过
+        # Check if image sizes match; skip if they don't
         if vv_image_1.shape != vh_image_1.shape or vv_image_1.shape != vv_image_2.shape or vv_image_1.shape != vh_image_2.shape:
-            print(f"跳过由于尺寸不匹配的影像: {vv_file_1}, {vh_file_1}, {vv_file_2}, {vh_file_2}")
+            print(f"Skipping images due to size mismatch: {vv_file_1}, {vh_file_1}, {vv_file_2}, {vh_file_2}")
             continue
         
-        # 计算可以整除的大小
+        # Calculate divisible dimensions
         h, w = vv_image_1.shape
         new_h = (h // tile_size) * tile_size
         new_w = (w // tile_size) * tile_size
@@ -42,11 +42,11 @@ def split_and_fuse_images(vv_dir, vh_dir, output_dir, tile_size=256):
         vv_image_2 = vv_image_2[:new_h, :new_w]
         vh_image_2 = vh_image_2[:new_h, :new_w]
         
-        # 从文件名中提取时间戳
-        date_1 = vv_file_1.split('_')[6]  # 假设时间戳位于文件名的第七个部分
-        date_2 = vv_file_2.split('_')[6]  # 假设时间戳位于文件名的第七个部分
+        # Extract timestamps from filenames
+        date_1 = vv_file_1.split('_')[6]  # Assume timestamp is the seventh part of the filename
+        date_2 = vv_file_2.split('_')[6]  # Assume timestamp is the seventh part of the filename
         
-        # 切割并保存图像块
+        # Split and save image tiles
         for i in range(0, new_h, tile_size):
             for j in range(0, new_w, tile_size):
                 vv_tile_1 = vv_image_1[i:i+tile_size, j:j+tile_size]
@@ -54,10 +54,10 @@ def split_and_fuse_images(vv_dir, vh_dir, output_dir, tile_size=256):
                 vv_tile_2 = vv_image_2[i:i+tile_size, j:j+tile_size]
                 vh_tile_2 = vh_image_2[i:i+tile_size, j:j+tile_size]
                 
-                # 将四个图像融合为 4 通道的图像
-                fused_image = np.stack([vv_tile_1, vh_tile_1, vv_tile_2, vh_tile_2], axis=0)  # 堆叠为 (C, H, W)
+                # Combine four images into a 4-channel image
+                fused_image = np.stack([vv_tile_1, vh_tile_1, vv_tile_2, vh_tile_2], axis=0)  # Stack into (C, H, W)
                 
-                # 为每个通道命名
+                # Name each channel
                 metadata = {
                     'axes': 'CXY',
                     'channel_names': [
@@ -68,11 +68,11 @@ def split_and_fuse_images(vv_dir, vh_dir, output_dir, tile_size=256):
                     ]
                 }
                 
-                # 保存为 4 通道的 TIFF 文件
+                # Save as a 4-channel TIFF file
                 fused_filename = os.path.join(output_dir, f"{vv_file_1[:-4]}_{date_1}_{date_2}_{i}_{j}_fused_4channels.tif")
                 tiff.imwrite(fused_filename, fused_image, photometric='minisblack', metadata=metadata)
         
-        print(f"已处理并融合时间点 {vv_file_1} 和 {vv_file_2}")
+        print(f"Processed and fused time points {vv_file_1} and {vv_file_2}")
 
 if __name__ == "__main__":
     vv_dir = '/home/yifan/Documents/data/forest/train/VV'
@@ -84,16 +84,16 @@ if __name__ == "__main__":
 import os
 import numpy as np
 from PIL import Image
-import tifffile as tiff  # 使用 tifffile 库来保存多通道 tiff 文件
+import tifffile as tiff  
 
 def split_and_fuse_images(vv_dir, vh_dir, output_dir, tile_size=256):
-    # 确保输出目录存在
+    # Ensure the output directory exists
     os.makedirs(output_dir, exist_ok=True)
     
     vv_files = sorted([f for f in os.listdir(vv_dir) if f.endswith('.tif')])
     vh_files = sorted([f for f in os.listdir(vh_dir) if f.endswith('.tif')])
     
-    assert len(vv_files) == len(vh_files), "VV 和 VH 文件数量不一致"
+    assert len(vv_files) == len(vh_files), "The number of VV and VH files does not match"
     
     for idx, (vv_file, vh_file) in enumerate(zip(vv_files, vh_files)):
         vv_image = Image.open(os.path.join(vv_dir, vv_file))
@@ -102,10 +102,10 @@ def split_and_fuse_images(vv_dir, vh_dir, output_dir, tile_size=256):
         vv_image = np.array(vv_image)
         vh_image = np.array(vh_image)
         
-        # 确保 VV 和 VH 图像大小一致
-        assert vv_image.shape == vh_image.shape, f"{vv_file} 和 {vh_file} 的尺寸不匹配"
+        # Ensure VV and VH images have the same size
+        assert vv_image.shape == vh_image.shape, f"The dimensions of {vv_file} and {vh_file} do not match"
         
-        # 计算可以整除的大小
+        # Calculate dimensions that are divisible by the tile size
         h, w = vv_image.shape
         new_h = (h // tile_size) * tile_size
         new_w = (w // tile_size) * tile_size
@@ -113,20 +113,20 @@ def split_and_fuse_images(vv_dir, vh_dir, output_dir, tile_size=256):
         vv_image = vv_image[:new_h, :new_w]
         vh_image = vh_image[:new_h, :new_w]
         
-        # 切割并保存图像块
+        # Split and save image tiles
         for i in range(0, new_h, tile_size):
             for j in range(0, new_w, tile_size):
                 vv_tile = vv_image[i:i+tile_size, j:j+tile_size]
                 vh_tile = vh_image[i:i+tile_size, j:j+tile_size]
                 
-                # 将 VV 和 VH 融合为 2 通道的图像
-                fused_image = np.stack([vv_tile, vh_tile], axis=0)  # 堆叠为 (C, H, W)
+                # Combine VV and VH into a 2-channel image
+                fused_image = np.stack([vv_tile, vh_tile], axis=0)  # Stack into (C, H, W)
                 
-                # 保存为 2 通道的 TIFF 文件
+                # Save as a 2-channel TIFF file
                 fused_filename = os.path.join(output_dir, f"{vv_file[:-4]}_{i}_{j}_fused.tif")
                 tiff.imwrite(fused_filename, fused_image, photometric='minisblack')
         
-        print(f"已处理并融合 {vv_file} 和 {vh_file}")
+        print(f"Processed and fused {vv_file} and {vh_file}")
 
 if __name__ == "__main__":
     vv_dir = '/home/yifan/Documents/data/forest/test/VV'

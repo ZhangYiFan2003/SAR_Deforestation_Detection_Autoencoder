@@ -14,8 +14,8 @@ def objective(trial, args, architectures):
     """
     try:
         # Suggest hyperparameters using Optuna
-        lr = trial.suggest_float('lr', 1e-4, 1e-3, log=True)  
-        weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-4, log=True)  
+        lr = trial.suggest_float('lr', 1e-4, 5e-4, step=1e-4)  
+        weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-5, step=1e-6)  
         
         # Update args with suggested hyperparameters
         args.lr = lr
