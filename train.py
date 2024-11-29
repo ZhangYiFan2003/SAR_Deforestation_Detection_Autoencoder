@@ -22,7 +22,7 @@ parser.add_argument('--test', action='store_true', default=True,
 # Training hyperparameters
 parser.add_argument('--batch-size', type=int, default=8, metavar='N',
                     help='input batch size for training (default: 128)')
-parser.add_argument('--epochs', type=int, default=10, metavar='N',
+parser.add_argument('--epochs', type=int, default=11, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='enables CUDA training')
@@ -140,7 +140,7 @@ if __name__ == "__main__":
 
     if args.test:
         # Load model weights from specified file
-        weight_path = os.path.join(args.results_path, "best_model.pth")#AE_epoch_10, VAE_epoch_10, best_model
+        weight_path = os.path.join(args.results_path, "AE_epoch_11.pth")#AE_epoch_10, VAE_epoch_10, best_model
         if not os.path.exists(weight_path):
             print("No weight file named 'best_model.pth' found for testing.")
             sys.exit()

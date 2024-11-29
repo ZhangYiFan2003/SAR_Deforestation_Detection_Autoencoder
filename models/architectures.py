@@ -15,6 +15,7 @@ class ResidualBlock(nn.Module):
         self.bn2 = nn.BatchNorm2d(out_channels)
         self.downsample = downsample
         #self.dropout = nn.Dropout(p=0.1)
+        self.cbam = CBAM(out_channels)
 
     def forward(self, x):
         # Save input as identity for skip connection
@@ -28,6 +29,8 @@ class ResidualBlock(nn.Module):
         # Second convolution + BatchNorm
         out = self.conv2(out)
         out = self.bn2(out)
+        
+        out = self.cbam(out)
         
         # Apply downsampling to identity if needed
         if self.downsample is not None:
@@ -80,6 +83,40 @@ class SelfAttention(nn.Module):
         out = self.gamma * out + x
         out = self.norm(out)
         return out
+
+#####################################################################################################################################################
+
+class CBAM(nn.Module):
+    def __init__(self, channels, reduction=16, kernel_size=7):
+        super(CBAM, self).__init__()
+        # 通道注意力模块
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+        
+        self.fc1 = nn.Conv2d(channels, channels // reduction, 1, bias=False)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Conv2d(channels // reduction, channels, 1, bias=False)
+        
+        self.sigmoid_channel = nn.Sigmoid()
+        
+        # 空间注意力模块
+        self.conv_spatial = nn.Conv2d(2, 1, kernel_size=kernel_size, padding=kernel_size // 2, bias=False)
+        self.sigmoid_spatial = nn.Sigmoid()
+    
+    def forward(self, x):
+        # 通道注意力
+        avg_out = self.fc2(self.relu(self.fc1(self.avg_pool(x))))
+        max_out = self.fc2(self.relu(self.fc1(self.max_pool(x))))
+        channel_att = self.sigmoid_channel(avg_out + max_out)
+        x = x * channel_att
+        
+        # 空间注意力
+        avg_out = torch.mean(x, dim=1, keepdim=True)
+        max_out, _ = torch.max(x, dim=1, keepdim=True)
+        spatial_att = self.sigmoid_spatial(self.conv_spatial(torch.cat([avg_out, max_out], dim=1)))
+        x = x * spatial_att
+        
+        return x
 
 #####################################################################################################################################################
 

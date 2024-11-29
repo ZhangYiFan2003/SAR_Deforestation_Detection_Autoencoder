@@ -4,6 +4,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 from torch.utils.tensorboard import SummaryWriter
+from sklearn.cluster import KMeans
+from scipy.ndimage import label
 
 #####################################################################################################################################################
 
@@ -67,9 +69,9 @@ class LossDistributionAnalysis:
                 batch_loss = loss_fn(recon_batch, data)
                 
                 # Collect batch-wise mean losses
-                #mse_batch = batch_loss.mean(dim=(1, 2, 3))
-                #pixel_losses.extend(mse_batch.cpu().numpy())
-                pixel_losses.extend(batch_loss.view(-1).cpu().numpy())  # 展平成一维数组，收集所有像素的 MSE 误差
+                mse_batch = batch_loss.mean(dim=(1, 2, 3))
+                pixel_losses.extend(mse_batch.cpu().numpy())
+                #pixel_losses.extend(batch_loss.view(-1).cpu().numpy())  # 展平成一维数组，收集所有像素的 MSE 误差
         
         # Convert losses to NumPy array
         pixel_losses = np.array(pixel_losses)
@@ -203,25 +205,54 @@ class LossDistributionAnalysis:
             # Apply logarithm to enhance differences
             pixel_loss_sum = np.log(pixel_loss_sum + 1e-8)
             # Normalize the pixel loss to [0, 1]
-            min_loss = pixel_loss_sum.min()
-            max_loss = pixel_loss_sum.max()
-            norm_pixel_loss = (pixel_loss_sum - min_loss) / (max_loss - min_loss + 1e-8)
+            min_loss = np.percentile(pixel_loss_sum, 1)
+            max_loss = np.percentile(pixel_loss_sum, 99)
+            clipped_loss = np.clip(pixel_loss_sum, min_loss, max_loss)
+            norm_pixel_loss = (clipped_loss - min_loss) / (max_loss - min_loss + 1e-8)
+            
+            # Apply KMeans clustering to classify normal and anomalous pixels
+            flattened_loss = norm_pixel_loss.flatten().reshape(-1, 1)
+            kmeans = KMeans(n_clusters=2, random_state=0).fit(flattened_loss)
+            anomaly_labels = kmeans.labels_.reshape(norm_pixel_loss.shape)
+            
+            # Post-process to ensure spatial continuity using connected component analysis
+            # Assume cluster with higher mean loss is anomaly
+            cluster_mean_loss = [norm_pixel_loss[anomaly_labels == i].mean() for i in range(2)]
+            anomaly_cluster = cluster_mean_loss.index(max(cluster_mean_loss))
+            binary_anomaly_map = (anomaly_labels == anomaly_cluster).astype(int)
+            
+            # Label connected components in the binary anomaly map
+            labeled_map, num_features = label(binary_anomaly_map)
+            
+            # Filter out small connected components (e.g., less than 50 pixels)
+            filtered_anomaly_map = np.zeros_like(binary_anomaly_map)
+            for i in range(1, num_features + 1):
+                component = (labeled_map == i)
+                if component.sum() >= 30:  # Threshold for spatial continuity
+                    filtered_anomaly_map[component] = 1
             
             # 可视化异常检测结果（包括热力图）
-            plt.figure(figsize=(12, 6))
+            plt.figure(figsize=(18, 6))
             
             # 原始图像
-            plt.subplot(1, 2, 1)
+            plt.subplot(1, 3, 1)
             plt.imshow(original_img[0], cmap='gray')
             plt.title('Original Image')
             plt.axis('off')
             
             # 热力图
-            plt.subplot(1, 2, 2)
+            plt.subplot(1, 3, 2)
             plt.imshow(norm_pixel_loss, cmap='magma', vmin=0, vmax=1.0)
             plt.colorbar(label='Normalized MSE Loss')
             plt.title('Anomaly Heat Map')
             plt.axis('off')
+            
+            # Post-processed anomaly map
+            plt.subplot(1, 3, 3)
+            plt.imshow(filtered_anomaly_map, cmap='hot', alpha=0.8)
+            plt.title('Filtered Anomaly Map')
+            plt.axis('off')
+            
             """
             # 异常检测图
             plt.subplot(1, 3, 3)
