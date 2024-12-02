@@ -6,7 +6,7 @@ This project aims to detect deforestation in SAR (Synthetic Aperture Radar) imag
 ![Model Structure](https://i.imgur.com/qIqsoUu.png)
 
 ## Current Trainig Effect
-![Current Effect](https://i.imgur.com/faLV6of.png)
+![Current Effect](https://i.imgur.com/zLXAi2Q.png)
 
 ## Project Structure
 
