@@ -214,5 +214,5 @@ class VAE(object):
         # Stop training if early stopping condition is met
         if self.early_stopping.early_stop:
             print("Early stopping")
-            return True
-        return False
+            return True, avg_recon_loss
+        return False, avg_recon_loss

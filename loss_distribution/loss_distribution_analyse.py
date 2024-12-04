@@ -193,10 +193,6 @@ class LossDistributionAnalysis:
             # Convert to NumPy array
             pixel_loss = pixel_loss.squeeze(0).cpu().numpy()  
             
-            # 计算异常检测图（像素级阈值判断）
-            anomaly_map = np.ones_like(pixel_loss[0])  # 假设使用第一个通道
-            anomaly_map[pixel_loss[0] > anomaly_threshold] = 0  # 异常像素置为1，其余为0
-            
             # 保存原始图像、重建图像、差异图像和异常检测结果
             original_img = data.squeeze(0).cpu().numpy()
             
@@ -210,26 +206,23 @@ class LossDistributionAnalysis:
             clipped_loss = np.clip(pixel_loss_sum, min_loss, max_loss)
             norm_pixel_loss = (clipped_loss - min_loss) / (max_loss - min_loss + 1e-8)
             
-            # Apply KMeans clustering to classify normal and anomalous pixels
+            # Apply KMeans clustering to classify pixels into three categories
             flattened_loss = norm_pixel_loss.flatten().reshape(-1, 1)
-            kmeans = KMeans(n_clusters=2, random_state=0).fit(flattened_loss)
+            kmeans = KMeans(n_clusters=3, random_state=0).fit(flattened_loss)
             anomaly_labels = kmeans.labels_.reshape(norm_pixel_loss.shape)
             
-            # Post-process to ensure spatial continuity using connected component analysis
-            # Assume cluster with higher mean loss is anomaly
-            cluster_mean_loss = [norm_pixel_loss[anomaly_labels == i].mean() for i in range(2)]
-            anomaly_cluster = cluster_mean_loss.index(max(cluster_mean_loss))
-            binary_anomaly_map = (anomaly_labels == anomaly_cluster).astype(int)
+            # Post-process to assign each cluster a semantic meaning
+            cluster_mean_loss = [norm_pixel_loss[anomaly_labels == i].mean() for i in range(3)]
+            sorted_clusters = np.argsort(cluster_mean_loss)  # Sort clusters by their mean MSE loss
+            forest_label = sorted_clusters[0]  # Lowest mean loss (forest)
+            deforestation_label = sorted_clusters[1]  # Middle mean loss (new deforestation)
+            no_forest_label = sorted_clusters[2]  # Highest mean loss (originally no forest)
             
-            # Label connected components in the binary anomaly map
-            labeled_map, num_features = label(binary_anomaly_map)
-            
-            # Filter out small connected components (e.g., less than 50 pixels)
-            filtered_anomaly_map = np.zeros_like(binary_anomaly_map)
-            for i in range(1, num_features + 1):
-                component = (labeled_map == i)
-                if component.sum() >= 30:  # Threshold for spatial continuity
-                    filtered_anomaly_map[component] = 1
+            # Generate semantic anomaly map
+            semantic_anomaly_map = np.zeros_like(anomaly_labels)
+            semantic_anomaly_map[anomaly_labels == forest_label] = 0
+            semantic_anomaly_map[anomaly_labels == deforestation_label] = 1
+            semantic_anomaly_map[anomaly_labels == no_forest_label] = 2
             
             # 可视化异常检测结果（包括热力图）
             plt.figure(figsize=(18, 6))
@@ -247,25 +240,18 @@ class LossDistributionAnalysis:
             plt.title('Anomaly Heat Map')
             plt.axis('off')
             
-            # Post-processed anomaly map
+            # 语义分类图
             plt.subplot(1, 3, 3)
-            plt.imshow(filtered_anomaly_map, cmap='hot', alpha=0.8)
-            plt.title('Filtered Anomaly Map')
+            plt.imshow(semantic_anomaly_map, cmap='tab10', alpha=0.8)
+            plt.title('Semantic Anomaly Map (3 Categories)')
             plt.axis('off')
             
-            """
-            # 异常检测图
-            plt.subplot(1, 3, 3)
-            plt.imshow(anomaly_map, cmap='hot')
-            plt.title('Anomaly Map')
-            plt.axis('off')
-            """
             # Save the visualization
             vis_save_path = os.path.join(self.args.results_path, 'anomaly_detection_result_with_heatmap.png')
             plt.tight_layout()
             plt.savefig(vis_save_path, bbox_inches='tight')
             plt.close()
-            print(f"Anomaly detection visualization with heat map saved at {vis_save_path}")
+            print(f"Anomaly detection visualization with semantic map saved at {vis_save_path}")
 
 #####################################################################################################################################################
 
