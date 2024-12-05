@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.cluster import KMeans
+from sklearn.mixture import GaussianMixture
 from scipy.ndimage import label
 
 #####################################################################################################################################################
@@ -139,7 +140,7 @@ class LossDistributionAnalysis:
         anomaly_threshold = np.quantile(train_pixel_losses, 0.99)
         
         val_image_index = None
-        test_image_index = 1566 #2022.9.19: with index from 1566 to 1592
+        test_image_index = 1569 #2022.9.19: with index from 1566 to 1592
         
         # Analyze images for anomaly detection based on this threshold
         self._reconstruct_and_analyze_images(anomaly_threshold, image_index=test_image_index)
@@ -205,11 +206,17 @@ class LossDistributionAnalysis:
             max_loss = np.percentile(pixel_loss_sum, 99)
             clipped_loss = np.clip(pixel_loss_sum, min_loss, max_loss)
             norm_pixel_loss = (clipped_loss - min_loss) / (max_loss - min_loss + 1e-8)
-            
+            """
             # Apply KMeans clustering to classify pixels into three categories
             flattened_loss = norm_pixel_loss.flatten().reshape(-1, 1)
             kmeans = KMeans(n_clusters=3, random_state=0).fit(flattened_loss)
             anomaly_labels = kmeans.labels_.reshape(norm_pixel_loss.shape)
+            """
+            # Apply Gaussian Mixture Model (GMM) to classify pixels into three categories
+            flattened_loss = norm_pixel_loss.flatten().reshape(-1, 1)
+            gmm = GaussianMixture(n_components=3, random_state=0).fit(flattened_loss)
+            gmm_labels = gmm.predict(flattened_loss)
+            anomaly_labels = gmm_labels.reshape(norm_pixel_loss.shape)
             
             # Post-process to assign each cluster a semantic meaning
             cluster_mean_loss = [norm_pixel_loss[anomaly_labels == i].mean() for i in range(3)]
