@@ -77,6 +77,49 @@ class ProcessedForestDataset(Dataset):
 
 #####################################################################################################################################################
 
+class ProcessedForestDataLoader(object):
+    """
+    Wrapper class for creating DataLoaders for train, validation, and test datasets.
+    """
+    def __init__(self, args):
+        """
+        Args:
+            args: Command-line arguments containing batch size and CUDA information.
+        """
+        kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
+        
+        self.min_train = -15
+        self.max_train = -3
+        #root_dir = '/home/yifan/Documents/data/forest/train/processed'
+        #self.min_train, self.max_train = compute_percentile_min_max(root_dir=root_dir, lower_percentile=1, upper_percentile=99,batch_size=100, device='cuda' if torch.cuda.is_available() else 'cpu')
+        
+        # Define image transformations (currently none are applied)
+        transform = transforms.Compose([
+            #transforms.RandomHorizontalFlip(),                     # Random horizontal flip
+            #transforms.RandomVerticalFlip(),                       # Random vertical flip
+            #transforms.RandomRotation(90),                         # Random rotation by multiples of 90 degrees
+        ])
+        
+        # Create DataLoader for the training dataset
+        self.train_loader = DataLoader(
+            ProcessedForestDataset(root_dir='/home/yifan/Documents/data/forest/train/processed', 
+                                    min_val=self.min_train, max_val=self.max_train, transform=transform),
+                                    batch_size=args.batch_size, shuffle=True, **kwargs)
+        
+        # Create DataLoader for the validation dataset
+        self.validation_loader = DataLoader(
+            ProcessedForestDataset(root_dir='/home/yifan/Documents/data/forest/validation/processed',
+                                    min_val=self.min_train, max_val=self.max_train, transform=transform),
+                                    batch_size=args.batch_size, shuffle=False, **kwargs)
+        
+        # Create DataLoader for the test dataset
+        self.test_loader = DataLoader(
+            ProcessedForestDataset(root_dir='/home/yifan/Documents/data/forest/test/processed',
+                                    min_val=self.min_train, max_val=self.max_train, transform=transform),
+                                    batch_size=args.batch_size, shuffle=False, **kwargs)
+
+#####################################################################################################################################################
+
 def compute_percentile_min_max(root_dir, lower_percentile=1, upper_percentile=99, batch_size=100, device='cuda'):
     """
     Efficiently compute global percentile minimum and maximum values for normalization using GPU.
@@ -134,48 +177,5 @@ def compute_percentile_min_max(root_dir, lower_percentile=1, upper_percentile=99
     
     print(f"[INFO] Calculation complete. Global Min: {global_min}, Global Max: {global_max}")
     return global_min, global_max
-
-#####################################################################################################################################################
-
-class ProcessedForestDataLoader(object):
-    """
-    Wrapper class for creating DataLoaders for train, validation, and test datasets.
-    """
-    def __init__(self, args):
-        """
-        Args:
-            args: Command-line arguments containing batch size and CUDA information.
-        """
-        kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
-        
-        self.min_train = -15.176060865565043
-        self.max_train = -3.001852675908949
-        #root_dir = '/home/yifan/Documents/data/forest/train/processed'
-        #self.min_train, self.max_train = compute_percentile_min_max(root_dir=root_dir, lower_percentile=1, upper_percentile=99,batch_size=100, device='cuda' if torch.cuda.is_available() else 'cpu')
-        
-        # Define image transformations (currently none are applied)
-        transform = transforms.Compose([
-            #transforms.RandomHorizontalFlip(),                     # Random horizontal flip
-            #transforms.RandomVerticalFlip(),                       # Random vertical flip
-            #transforms.RandomRotation(90),                         # Random rotation by multiples of 90 degrees
-        ])
-        
-        # Create DataLoader for the training dataset
-        self.train_loader = DataLoader(
-            ProcessedForestDataset(root_dir='/home/yifan/Documents/data/forest/train/processed', 
-                                    min_val=self.min_train, max_val=self.max_train, transform=transform),
-                                    batch_size=args.batch_size, shuffle=True, **kwargs)
-        
-        # Create DataLoader for the validation dataset
-        self.validation_loader = DataLoader(
-            ProcessedForestDataset(root_dir='/home/yifan/Documents/data/forest/validation/processed',
-                                    min_val=self.min_train, max_val=self.max_train, transform=transform),
-                                    batch_size=args.batch_size, shuffle=False, **kwargs)
-        
-        # Create DataLoader for the test dataset
-        self.test_loader = DataLoader(
-            ProcessedForestDataset(root_dir='/home/yifan/Documents/data/forest/test/processed',
-                                    min_val=self.min_train, max_val=self.max_train, transform=transform),
-                                    batch_size=args.batch_size, shuffle=False, **kwargs)
 
 #####################################################################################################################################################

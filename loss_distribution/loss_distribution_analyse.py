@@ -140,7 +140,7 @@ class LossDistributionAnalysis:
         anomaly_threshold = np.quantile(train_pixel_losses, 0.99)
         
         val_image_index = None
-        test_image_index = 1569 #2022.9.19: with index from 1566 to 1592
+        test_image_index = 1573 #2022.9.19: with index from 1566 to 1592
         
         # Analyze images for anomaly detection based on this threshold
         self._reconstruct_and_analyze_images(anomaly_threshold, image_index=test_image_index)
@@ -194,7 +194,7 @@ class LossDistributionAnalysis:
             # Convert to NumPy array
             pixel_loss = pixel_loss.squeeze(0).cpu().numpy()  
             
-            # 保存原始图像、重建图像、差异图像和异常检测结果
+            # Save original images, reconstructed images, difference images, and anomaly detection results
             original_img = data.squeeze(0).cpu().numpy()
             
             # Generate anomaly heatmap
@@ -206,17 +206,26 @@ class LossDistributionAnalysis:
             max_loss = np.percentile(pixel_loss_sum, 99)
             clipped_loss = np.clip(pixel_loss_sum, min_loss, max_loss)
             norm_pixel_loss = (clipped_loss - min_loss) / (max_loss - min_loss + 1e-8)
+            
+            #Kmeans 2 classes clustering
             """
             # Apply KMeans clustering to classify pixels into three categories
             flattened_loss = norm_pixel_loss.flatten().reshape(-1, 1)
             kmeans = KMeans(n_clusters=3, random_state=0).fit(flattened_loss)
             anomaly_labels = kmeans.labels_.reshape(norm_pixel_loss.shape)
             """
+            
+            
+            #GMM 3 classes clustering
+            
             # Apply Gaussian Mixture Model (GMM) to classify pixels into three categories
             flattened_loss = norm_pixel_loss.flatten().reshape(-1, 1)
             gmm = GaussianMixture(n_components=3, random_state=0).fit(flattened_loss)
             gmm_labels = gmm.predict(flattened_loss)
             anomaly_labels = gmm_labels.reshape(norm_pixel_loss.shape)
+            
+            
+            
             
             # Post-process to assign each cluster a semantic meaning
             cluster_mean_loss = [norm_pixel_loss[anomaly_labels == i].mean() for i in range(3)]
@@ -231,7 +240,125 @@ class LossDistributionAnalysis:
             semantic_anomaly_map[anomaly_labels == deforestation_label] = 1
             semantic_anomaly_map[anomaly_labels == no_forest_label] = 2
             
-            # 可视化异常检测结果（包括热力图）
+            
+            
+            #4 classes clustering step by step
+            """
+            # Step 1: Forest vs. Non-Forest
+            flattened_loss = norm_pixel_loss.flatten().reshape(-1, 1)
+            gmm_step1 = GaussianMixture(n_components=2, random_state=0).fit(flattened_loss)
+            gmm_step1_labels = gmm_step1.predict(flattened_loss)
+            gmm_step1_labels = gmm_step1_labels.reshape(norm_pixel_loss.shape)
+            
+            # According to the mean MSE, we can judge which is the forest (low MSE) and which is the non-forest (high MSE).
+            cluster_mean_loss_step1 = [norm_pixel_loss[gmm_step1_labels == i].mean() for i in range(2)]
+            forest_label_step1 = np.argmin(cluster_mean_loss_step1)
+            no_forest_label_step1 = np.argmax(cluster_mean_loss_step1)
+            
+            # Separate forest and non-forest pixels
+            forest_mask = (gmm_step1_labels == forest_label_step1)
+            no_forest_mask = (gmm_step1_labels == no_forest_label_step1)
+            
+            # Step 2: Further classify non-forest pixels into "original no forest" vs "recent deforestation + roads"
+            no_forest_pixels = norm_pixel_loss[no_forest_mask].reshape(-1, 1)
+            gmm_step2 = GaussianMixture(n_components=2, random_state=0).fit(no_forest_pixels)
+            gmm_step2_labels = gmm_step2.predict(no_forest_pixels)
+            
+            # Map the labels from step 2 back to the original image coordinates
+            no_forest_labels_img = np.zeros_like(gmm_step1_labels[no_forest_mask])
+            no_forest_labels_img[:] = gmm_step2_labels
+            
+            # Based on the mean MSE, we can judge the original forest-free area (low MSE) and the "recent deforestation + roads" (high MSE).
+            cluster_mean_loss_step2 = [
+                norm_pixel_loss[no_forest_mask][no_forest_labels_img == i].mean() 
+                for i in range(2)
+            ]
+            original_no_forest_label_step2 = np.argmin(cluster_mean_loss_step2)
+            newdef_road_label_step2 = np.argmax(cluster_mean_loss_step2)
+            
+            original_no_forest_mask = np.zeros_like(gmm_step1_labels, dtype=bool)
+            original_no_forest_mask[no_forest_mask] = (no_forest_labels_img == original_no_forest_label_step2)
+            
+            newdef_road_mask = np.zeros_like(gmm_step1_labels, dtype=bool)
+            newdef_road_mask[no_forest_mask] = (no_forest_labels_img == newdef_road_label_step2)
+            
+            # Step 3: Subdivide "Recently Deforested + Road" pixels
+            newdef_road_pixels = norm_pixel_loss[newdef_road_mask].reshape(-1, 1)
+            gmm_step3 = GaussianMixture(n_components=2, random_state=0).fit(newdef_road_pixels)
+            gmm_step3_labels = gmm_step3.predict(newdef_road_pixels)
+            
+            # Map back to the original image position
+            newdef_road_labels_img = np.zeros_like(gmm_step1_labels[newdef_road_mask])
+            newdef_road_labels_img[:] = gmm_step3_labels
+            
+            # Judging "recent deforestation" (low MSE) and "road" (high MSE) based on the mean MSE
+            cluster_mean_loss_step3 = [
+                norm_pixel_loss[newdef_road_mask][newdef_road_labels_img == i].mean() 
+                for i in range(2)
+            ]
+            newdef_label_step3 = np.argmin(cluster_mean_loss_step3)
+            road_label_step3 = np.argmax(cluster_mean_loss_step3)
+            
+            newdef_mask = np.zeros_like(gmm_step1_labels, dtype=bool)
+            newdef_mask[newdef_road_mask] = (newdef_road_labels_img == newdef_label_step3)
+            
+            road_mask = np.zeros_like(gmm_step1_labels, dtype=bool)
+            road_mask[newdef_road_mask] = (newdef_road_labels_img == road_label_step3)
+            
+            semantic_anomaly_map = np.zeros_like(gmm_step1_labels)
+            semantic_anomaly_map[forest_mask] = 0
+            semantic_anomaly_map[original_no_forest_mask] = 1
+            semantic_anomaly_map[newdef_mask] = 2
+            semantic_anomaly_map[road_mask] = 3
+            """
+            
+            
+            #3 classes clustering fllowed by another 2 classes clustering
+            """
+            # 原来的三分类GMM
+            flattened_loss = norm_pixel_loss.flatten().reshape(-1, 1)
+            gmm = GaussianMixture(n_components=3, random_state=0).fit(flattened_loss)
+            gmm_labels = gmm.predict(flattened_loss)
+            anomaly_labels = gmm_labels.reshape(norm_pixel_loss.shape)
+            
+            # 根据均值MSE分配语义类别
+            cluster_mean_loss = [norm_pixel_loss[anomaly_labels == i].mean() for i in range(3)]
+            sorted_clusters = np.argsort(cluster_mean_loss)  # 从低MSE到高MSE排序
+            forest_label = sorted_clusters[0]         # 最低MSE: 森林
+            no_forest_label = sorted_clusters[1]  # 中间MSE: 无森林
+            deforestation_label = sorted_clusters[2]       # 最高MSE: 新近毁林
+            
+            # 第一次分类后的语义图(3类)
+            semantic_anomaly_map = np.zeros_like(anomaly_labels)
+            semantic_anomaly_map[anomaly_labels == forest_label] = 0
+            semantic_anomaly_map[anomaly_labels == no_forest_label] = 1
+            semantic_anomaly_map[anomaly_labels == deforestation_label] = 2
+            
+            # 针对 "新近毁林" 的像素再次做二次GMM分类，区分出"新近毁林"和"道路"
+            deforestation_mask = (semantic_anomaly_map == 2)
+            deforestation_pixels = norm_pixel_loss[deforestation_mask].reshape(-1, 1)
+            
+            if len(deforestation_pixels) > 0:
+                gmm_def = GaussianMixture(n_components=2, random_state=0).fit(deforestation_pixels)
+                def_labels = gmm_def.predict(deforestation_pixels)
+                
+                # 根据MSE均值判断哪个是新近毁林(低MSE)哪个是道路(高MSE)
+                def_cluster_mean_loss = [
+                    deforestation_pixels[def_labels == i].mean() for i in range(2)
+                ]
+                newdef_label = np.argmin(def_cluster_mean_loss)
+                road_label = np.argmax(def_cluster_mean_loss)
+                
+                # 创建与原始图像相同大小的数组，并填充二次聚类结果
+                refined_def_map_full = np.zeros_like(semantic_anomaly_map, dtype=int)
+                refined_def_map_full[deforestation_mask] = def_labels
+                
+                # 将新标签更新到语义异常图中
+                semantic_anomaly_map[(refined_def_map_full == newdef_label) & deforestation_mask] = 2  # 新近毁林
+                semantic_anomaly_map[(refined_def_map_full == road_label) & deforestation_mask] = 3  # 道路
+            """
+            
+            # 绘图展示结果
             plt.figure(figsize=(18, 6))
             
             # 原始图像
@@ -247,18 +374,18 @@ class LossDistributionAnalysis:
             plt.title('Anomaly Heat Map')
             plt.axis('off')
             
-            # 语义分类图
+            # 最终语义分类图：0:森林, 1:新近毁林, 2:无森林, 3:道路
             plt.subplot(1, 3, 3)
             plt.imshow(semantic_anomaly_map, cmap='tab10', alpha=0.8)
-            plt.title('Semantic Anomaly Map (3 Categories)')
+            plt.title('Semantic Map (Forest=0, NoForest=1, NewDef=2, Road=3)')
             plt.axis('off')
             
             # Save the visualization
-            vis_save_path = os.path.join(self.args.results_path, 'anomaly_detection_result_with_heatmap.png')
+            vis_save_path = os.path.join(self.args.results_path, 'anomaly_detection_result.png')
             plt.tight_layout()
             plt.savefig(vis_save_path, bbox_inches='tight')
             plt.close()
-            print(f"Anomaly detection visualization with semantic map saved at {vis_save_path}")
+            print(f"Anomaly detection visualization with refined deforestation clustering saved at {vis_save_path}")
 
 #####################################################################################################################################################
 
@@ -271,7 +398,6 @@ class LossDistributionAnalysis:
             test_image_index (int): 测试集中的图像索引。如果为 None，则随机选择。
         """
         def _get_image_and_loss(dataset, image_index):
-            """获取图像和像素级 MSE 损失"""
             if image_index is not None:
                 if image_index < 0 or image_index >= len(dataset):
                     raise ValueError(f"Image index {image_index} is out of bounds. Valid range: 0 to {len(dataset) - 1}.")
@@ -281,41 +407,35 @@ class LossDistributionAnalysis:
                 data = dataset[image_index]
             
             if isinstance(data, tuple) or isinstance(data, list):
-                data = data[0]  # 如果是 (图像, 标签) 元组，只取图像部分
+                data = data[0]  
             data = data.unsqueeze(0).to(self.device)
             
-            # AE 或 VAE 重建
             recon_data = self.model(data)
             if isinstance(recon_data, tuple):
                 recon_data = recon_data[0]
             
-            # 逐像素计算 MSE 损失
             loss_fn = torch.nn.MSELoss(reduction='none')
             pixel_loss = loss_fn(recon_data, data).sum(dim=1).squeeze(0).cpu().numpy()  # 合并通道，转为 NumPy 数组
             return image_index, pixel_loss
         
         self.model.eval()
         with torch.no_grad():
-            # 从验证集获取图像和损失
             val_index, val_pixel_loss = _get_image_and_loss(self.validation_loader.dataset, val_image_index)
             print(f"Selected validation image index: {val_index}")
             
-            # 从测试集获取图像和损失
             test_index, test_pixel_loss = _get_image_and_loss(self.test_loader.dataset, test_image_index)
             print(f"Selected test image index: {test_index}")
             
-            # 绘制直方图
             plt.figure(figsize=(10, 6))
             plt.hist(val_pixel_loss.flatten(), bins=100, alpha=0.7, label=f'Validation Image {val_index}', color='blue', density=True)
             plt.hist(test_pixel_loss.flatten(), bins=100, alpha=0.7, label=f'Test Image {test_index}', color='orange', density=True)
-            plt.yscale('log')  # 对数刻度
+            plt.yscale('log')  
             plt.xlabel('MSE per Pixel', fontsize=12)
             plt.ylabel('Frequency (Log Scale)', fontsize=12)
             plt.title('Pixel MSE Distribution: Validation vs Test', fontsize=14)
             plt.legend()
             plt.grid(axis='y', linestyle='--', alpha=0.7)
             
-            # 保存图像
             histogram_save_path = os.path.join(self.args.results_path, f'pixel_mse_comparison_val_{val_index}_test_{test_index}.png')
             plt.savefig(histogram_save_path, bbox_inches='tight')
             plt.close()

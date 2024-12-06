@@ -140,7 +140,7 @@ if __name__ == "__main__":
 
     if args.test:
         # Load model weights from specified file
-        weight_path = os.path.join(args.results_path, "AE_epoch_11.pth")#AE_epoch_10, VAE_epoch_10, best_model
+        weight_path = os.path.join(args.results_path, "best_model.pth")#AE_epoch_10, VAE_epoch_10, best_model
         if not os.path.exists(weight_path):
             print("No weight file named 'best_model.pth' found for testing.")
             sys.exit()

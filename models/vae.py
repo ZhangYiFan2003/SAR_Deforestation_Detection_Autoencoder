@@ -92,7 +92,7 @@ class VAE(object):
 
 #####################################################################################################################################################
 
-    def loss_function(self, recon_x, x, mu, logvar, beta=0.001, max_value=10):
+    def loss_function(self, recon_x, x, mu, logvar, beta=1.0):
         """
         Custom loss function that combines β-VAE strategy.
         Balances reconstruction loss (MSE) and KL divergence (KLD).
@@ -133,51 +133,52 @@ class VAE(object):
 #####################################################################################################################################################
 
     def train(self, epoch):
-            self.model.train()
-            train_loss = 0
-            train_recon_loss = 0
-            train_kld_loss = 0
+        self.model.train()
+        train_loss = 0
+        train_recon_loss = 0
+        train_kld_loss = 0
+        
+        # Define KL annealing schedule: Linearly increase β from 0 to 1 over epochs
+        #total_epochs = self.args.epochs
+        # Linear increase
+        #beta = min(1.0, epoch / total_epochs)  
+        beta = 1.0
+        
+        for batch_idx, data in enumerate(self.train_loader):
+            data = data.to(self.device)
+            # Clear gradients
+            self.optimizer.zero_grad()
             
-            # Define KL annealing schedule: Linearly increase β from 0 to 1 over epochs
-            total_epochs = self.args.epochs
-            # Linear increase
-            beta = min(1.0, epoch / total_epochs)  
+            # Forward pass
+            recon_batch, mu, logvar = self.model(data)
+            loss, recon_loss, kld_loss = self.loss_function(recon_batch, data, mu, logvar, beta=beta)
             
-            for batch_idx, data in enumerate(self.train_loader):
-                data = data.to(self.device)
-                # Clear gradients
-                self.optimizer.zero_grad()
-                
-                # Forward pass
-                recon_batch, mu, logvar = self.model(data)
-                loss, recon_loss, kld_loss = self.loss_function(recon_batch, data, mu, logvar, beta=beta)
-                
-                # Backpropagation
-                loss.backward()
-                train_loss += loss.item()
-                train_recon_loss += recon_loss.item()
-                train_kld_loss += kld_loss.item()
-                
-                # Update weights
-                self.optimizer.step()
-                
-                # Log training progress at intervals
-                if batch_idx % self.args.log_interval == 0:
-                    print(f'Train Epoch: {epoch} [{batch_idx * len(data)}/{len(self.train_loader.dataset)} '
-                        f'({100. * batch_idx / len(self.train_loader):.0f}%)]\tLoss: {loss.item() / len(data):.6f}\t'
-                        f'Recon: {recon_loss.item() / len(data):.6f}\tKLD: {kld_loss.item() / len(data):.6f}')
+            # Backpropagation
+            loss.backward()
+            train_loss += loss.item()
+            train_recon_loss += recon_loss.item()
+            train_kld_loss += kld_loss.item()
             
-            avg_loss = train_loss / len(self.train_loader.dataset)
-            avg_mse_loss = train_recon_loss / len(self.train_loader.dataset)
-            print(f'====> Epoch: {epoch} Average train loss: {avg_loss:.4f}')
-            print(f'====> Epoch: {epoch} Average train mse loss: {avg_mse_loss:.4f}')
+            # Update weights
+            self.optimizer.step()
             
-            # Log losses and learning rate to TensorBoard
-            self.writer.add_scalar('Loss/train', avg_loss, epoch)
-            self.writer.add_scalar('Learning Rate', self.optimizer.param_groups[0]['lr'], epoch)
-            
-            # Update learning rate using the scheduler
-            self.scheduler.step()
+            # Log training progress at intervals
+            if batch_idx % self.args.log_interval == 0:
+                print(f'Train Epoch: {epoch} [{batch_idx * len(data)}/{len(self.train_loader.dataset)} '
+                    f'({100. * batch_idx / len(self.train_loader):.0f}%)]\tLoss: {loss.item() / len(data):.6f}\t'
+                    f'Recon: {recon_loss.item() / len(data):.6f}\tKLD: {kld_loss.item() / len(data):.6f}')
+        
+        avg_loss = train_loss / len(self.train_loader.dataset)
+        avg_mse_loss = train_recon_loss / len(self.train_loader.dataset)
+        print(f'====> Epoch: {epoch} Average train loss: {avg_loss:.4f}')
+        print(f'====> Epoch: {epoch} Average train mse loss: {avg_mse_loss:.4f}')
+        
+        # Log losses and learning rate to TensorBoard
+        self.writer.add_scalar('Loss/train', avg_loss, epoch)
+        self.writer.add_scalar('Learning Rate', self.optimizer.param_groups[0]['lr'], epoch)
+        
+        # Update learning rate using the scheduler
+        self.scheduler.step()
 
 #####################################################################################################################################################
 
