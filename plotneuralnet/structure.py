@@ -10,6 +10,10 @@ sys.path.append(root_dir)
 from pycore.tikzeng import *  # Import modules needed for plotting
 from pycore.blocks import *
 
+# Define a mapping between channel numbers and width
+def compute_width(n_filer):
+    return n_filer / 64  # Example scaling factor, can be adjusted
+
 # Define your architecture
 arch = [
     to_head('..'),
@@ -26,7 +30,7 @@ arch = [
         n_filer=(64, 64),
         offset="(0,0,0)",
         to="(input-east)",
-        width=(2, 2),
+        width=(compute_width(64), compute_width(64)),
         height=40,
         depth=40,
         caption='Initial Conv'
@@ -40,7 +44,7 @@ arch = [
         n_filer=(64, 64),
         offset="(1.5,0,0)",
         to="(ccr_b0-east)",
-        width=(2, 2),
+        width=(compute_width(64), compute_width(64)),
         height=32,
         depth=32,
         caption='Encoder Block 1'
@@ -54,7 +58,7 @@ arch = [
         n_filer=(128, 128),
         offset="(1.5,0,0)",
         to="(ccr_b1-east)",
-        width=(2.5, 2.5),
+        width=(compute_width(128), compute_width(128)),
         height=25,
         depth=25,
         caption='Encoder Block 2'
@@ -68,7 +72,7 @@ arch = [
         n_filer=(256, 256),
         offset="(1.5,0,0)",
         to="(ccr_b2-east)",
-        width=(3, 3),
+        width=(compute_width(256), compute_width(256)),
         height=16,
         depth=16,
         caption='Encoder Block 3'
@@ -82,7 +86,7 @@ arch = [
         n_filer=(512, 512),
         offset="(1.5,0,0)",
         to="(ccr_b3-east)",
-        width=(3.5, 3.5),
+        width=(compute_width(512), compute_width(512)),
         height=12,
         depth=12,
         caption='Encoder Block 4'
@@ -96,7 +100,7 @@ arch = [
         n_filer=(512, 512),
         offset="(1.5,0,0)",
         to="(ccr_b4-east)",
-        width=(4, 4),
+        width=(compute_width(512), compute_width(512)),
         height=8,
         depth=8,
         caption='Encoder Block 5'
@@ -110,7 +114,7 @@ arch = [
         n_filer=512,
         offset="(2,0,0)",
         to="(ccr_b5-east)",
-        width=10,
+        width=compute_width(512),
         height=8,
         depth=8,
         caption='Self-Attention'
@@ -126,7 +130,7 @@ arch = [
         s_filer=8,
         n_filer=256,
         offset="(2.1,0,0)",
-        size=(8, 8, 8),
+        size=(12, 12, compute_width(256)),
         opacity=0.5
     ),
     to_skip(of='ccr_b5', to='ccr_res_b6', pos=1.25),
@@ -139,7 +143,7 @@ arch = [
         s_filer=16,
         n_filer=256,
         offset="(2.1,0,0)",
-        size=(12, 12, 8),
+        size=(16, 16, compute_width(256)),
         opacity=0.5
     ),
     to_skip(of='ccr_b4', to='ccr_res_b7', pos=1.25),
@@ -151,7 +155,7 @@ arch = [
         n_filer=256,
         offset="(2,0,0)",
         to="(end_b7-east)",
-        width=8,
+        width=compute_width(256),
         height=16,
         depth=16,
         caption='Self-Attention'
@@ -166,7 +170,7 @@ arch = [
         s_filer=32,
         n_filer=256,
         offset="(2.1,0,0)",
-        size=(16, 16, 8),
+        size=(25, 25, compute_width(256)),
         opacity=0.5
     ),
 
@@ -178,7 +182,7 @@ arch = [
         s_filer=64,
         n_filer=128,
         offset="(2.1,0,0)",
-        size=(25, 25, 6),
+        size=(32, 32, compute_width(128)),
         opacity=0.5
     ),
 
@@ -190,7 +194,7 @@ arch = [
         s_filer=128,
         n_filer=64,
         offset="(2.1,0,0)",
-        size=(32, 32, 4),
+        size=(40, 40, compute_width(64)),
         opacity=0.5
     ),
 
@@ -202,7 +206,7 @@ arch = [
         s_filer=256,
         n_filer=32,
         offset="(2.1,0,0)",
-        size=(40, 40, 2),
+        size=(48, 48, compute_width(32)),
         opacity=0.5
     ),
 
@@ -211,9 +215,9 @@ arch = [
         name='output',
         offset="(0.75,0,0)",
         to="(end_b11-east)",
-        width=1,
-        height=40,
-        depth=40,
+        width=compute_width(2),
+        height=48,
+        depth=48,
         caption='Output'
     ),
     to_connection('end_b11', 'output'),
