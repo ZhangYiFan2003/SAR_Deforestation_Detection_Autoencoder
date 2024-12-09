@@ -23,6 +23,7 @@ arch = [
     # Input layer
     to_ConvSoftMax(
         name='input',
+        s_filer=256,
         offset="(0,0,0)",
         to="(end_b11-east)",
         width=compute_width(2),
@@ -34,7 +35,7 @@ arch = [
     # Initial Convolution Layer
     to_ConvConvRelu(
         name='ccr_b0',
-        s_filer=256,
+        s_filer=128,
         n_filer=(64, 64),
         offset="(1.5,0,0)",
         to="(input-east)",
@@ -48,7 +49,7 @@ arch = [
     # Encoder Block 1
     to_ConvConvRelu(
         name='ccr_b1',
-        s_filer=128,
+        s_filer=64,
         n_filer=(64, 64),
         offset="(1.5,0,0)",
         to="(ccr_b0-east)",
@@ -62,7 +63,7 @@ arch = [
     # Encoder Block 2
     to_ConvConvRelu(
         name='ccr_b2',
-        s_filer=64,
+        s_filer=32,
         n_filer=(128, 128),
         offset="(1.5,0,0)",
         to="(ccr_b1-east)",
@@ -76,7 +77,7 @@ arch = [
     # Encoder Block 3
     to_ConvConvRelu(
         name='ccr_b3',
-        s_filer=32,
+        s_filer=16,
         n_filer=(256, 256),
         offset="(1.5,0,0)",
         to="(ccr_b2-east)",
@@ -90,7 +91,7 @@ arch = [
     # Encoder Block 4
     to_ConvConvRelu(
         name='ccr_b4',
-        s_filer=16,
+        s_filer=8,
         n_filer=(512, 512),
         offset="(1.5,0,0)",
         to="(ccr_b3-east)",
@@ -104,7 +105,7 @@ arch = [
     # Encoder Block 5
     to_ConvConvRelu(
         name='ccr_b5',
-        s_filer=8,
+        s_filer=4,
         n_filer=(512, 512),
         offset="(1.5,0,0)",
         to="(ccr_b4-east)",
@@ -118,7 +119,7 @@ arch = [
     # Self-Attention Layer
     to_Conv(
         name='self_attention',
-        s_filer=8,
+        s_filer=4,
         n_filer=512,
         offset="(2,0,0)",
         to="(ccr_b5-east)",
@@ -221,7 +222,8 @@ arch = [
     # Output Layer
     to_ConvSoftMax(
         name='output',
-        offset="(0.75,0,0)",
+        s_filer=256,
+        offset="(1.5,0,0)",
         to="(end_b11-east)",
         width=compute_width(2),
         height=48,

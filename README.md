@@ -3,7 +3,7 @@
 This project aims to detect deforestation in SAR (Synthetic Aperture Radar) images by training an autoencoder model. The autoencoder is designed to extract essential features from multi-channel SAR data to identify signs of deforestation over time.
 
 ## Current Model Architecture
-![Model Structure](https://i.imgur.com/gBUbyAE.png)
+![Model Structure](https://i.imgur.com/Yyhat4z.png)
 
 ## Current Trainig Effect
 ![Current Effect](https://i.imgur.com/AsMkAUt.png)
