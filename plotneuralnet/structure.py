@@ -21,14 +21,22 @@ arch = [
     to_begin(),
 
     # Input layer
-    to_input('input.png', name='input'),
+    to_ConvSoftMax(
+        name='input',
+        offset="(0,0,0)",
+        to="(end_b11-east)",
+        width=compute_width(2),
+        height=48,
+        depth=48,
+        caption='input'
+    ),
 
     # Initial Convolution Layer
     to_ConvConvRelu(
         name='ccr_b0',
         s_filer=256,
         n_filer=(64, 64),
-        offset="(0,0,0)",
+        offset="(1.5,0,0)",
         to="(input-east)",
         width=(compute_width(64), compute_width(64)),
         height=40,
