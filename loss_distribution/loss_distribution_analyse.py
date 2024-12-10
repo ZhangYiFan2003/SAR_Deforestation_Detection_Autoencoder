@@ -8,6 +8,15 @@ from sklearn.cluster import KMeans
 from sklearn.mixture import GaussianMixture
 from scipy.ndimage import label
 
+import os
+import glob
+import re
+from datetime import datetime
+from torch.nn import MSELoss
+from PIL import Image
+import torchvision.transforms as transforms
+import tifffile as tiff
+
 #####################################################################################################################################################
 
 class LossDistributionAnalysis:
@@ -116,8 +125,6 @@ class LossDistributionAnalysis:
         
         # Compute pixel-wise MSE losses for each dataset
         train_pixel_losses = self._calculate_pixel_losses(self.train_loader, 'Train')
-        validation_pixel_losses = self._calculate_pixel_losses(self.validation_loader, 'Validation')
-        test_pixel_losses = self._calculate_pixel_losses(self.test_loader, 'Test')
         
         # Collect hyperparameters for annotation in plots
         hyperparameters = {
@@ -140,10 +147,11 @@ class LossDistributionAnalysis:
         anomaly_threshold = np.quantile(train_pixel_losses, 0.99)
         
         val_image_index = None
-        test_image_index = 1573 #2022.9.19: with index from 1566 to 1592
+        test_image_index = 1566 #2022.9.19: with index from 1566 to 1592
         
         # Analyze images for anomaly detection based on this threshold
         self._reconstruct_and_analyze_images(anomaly_threshold, image_index=test_image_index)
+        self._reconstruct_and_analyze_images_over_time(anomaly_threshold=0.5)
         #self._compare_pixel_mse_histograms(val_image_index=val_image_index, test_image_index=test_image_index)
 
 #####################################################################################################################################################
@@ -208,176 +216,43 @@ class LossDistributionAnalysis:
             norm_pixel_loss = (clipped_loss - min_loss) / (max_loss - min_loss + 1e-8)
             
             #Kmeans 2 classes clustering
-            """
-            # Apply KMeans clustering to classify pixels into three categories
+            # Apply KMeans clustering to classify normal and anomalous pixels
             flattened_loss = norm_pixel_loss.flatten().reshape(-1, 1)
-            kmeans = KMeans(n_clusters=3, random_state=0).fit(flattened_loss)
+            kmeans = KMeans(n_clusters=2, random_state=0).fit(flattened_loss)
             anomaly_labels = kmeans.labels_.reshape(norm_pixel_loss.shape)
-            """
             
+            # Post-process to ensure spatial continuity using connected component analysis
+            # Assume cluster with higher mean loss is anomaly
+            cluster_mean_loss = [norm_pixel_loss[anomaly_labels == i].mean() for i in range(2)]
+            anomaly_cluster = cluster_mean_loss.index(max(cluster_mean_loss))
+            binary_anomaly_map = (anomaly_labels == anomaly_cluster).astype(int)
             
-            #GMM 3 classes clustering
+            # Label connected components in the binary anomaly map
+            labeled_map, num_features = label(binary_anomaly_map)
             
-            # Apply Gaussian Mixture Model (GMM) to classify pixels into three categories
-            flattened_loss = norm_pixel_loss.flatten().reshape(-1, 1)
-            gmm = GaussianMixture(n_components=3, random_state=0).fit(flattened_loss)
-            gmm_labels = gmm.predict(flattened_loss)
-            anomaly_labels = gmm_labels.reshape(norm_pixel_loss.shape)
+            # Filter out small connected components (e.g., less than 50 pixels)
+            filtered_anomaly_map = np.zeros_like(binary_anomaly_map)
+            for i in range(1, num_features + 1):
+                component = (labeled_map == i)
+                if component.sum() >= 30:  # Threshold for spatial continuity
+                    filtered_anomaly_map[component] = 1
             
-            
-            
-            
-            # Post-process to assign each cluster a semantic meaning
-            cluster_mean_loss = [norm_pixel_loss[anomaly_labels == i].mean() for i in range(3)]
-            sorted_clusters = np.argsort(cluster_mean_loss)  # Sort clusters by their mean MSE loss
-            forest_label = sorted_clusters[0]  # Lowest mean loss (forest)
-            deforestation_label = sorted_clusters[1]  # Middle mean loss (new deforestation)
-            no_forest_label = sorted_clusters[2]  # Highest mean loss (originally no forest)
-            
-            # Generate semantic anomaly map
-            semantic_anomaly_map = np.zeros_like(anomaly_labels)
-            semantic_anomaly_map[anomaly_labels == forest_label] = 0
-            semantic_anomaly_map[anomaly_labels == deforestation_label] = 1
-            semantic_anomaly_map[anomaly_labels == no_forest_label] = 2
-            
-            
-            
-            #4 classes clustering step by step
-            """
-            # Step 1: Forest vs. Non-Forest
-            flattened_loss = norm_pixel_loss.flatten().reshape(-1, 1)
-            gmm_step1 = GaussianMixture(n_components=2, random_state=0).fit(flattened_loss)
-            gmm_step1_labels = gmm_step1.predict(flattened_loss)
-            gmm_step1_labels = gmm_step1_labels.reshape(norm_pixel_loss.shape)
-            
-            # According to the mean MSE, we can judge which is the forest (low MSE) and which is the non-forest (high MSE).
-            cluster_mean_loss_step1 = [norm_pixel_loss[gmm_step1_labels == i].mean() for i in range(2)]
-            forest_label_step1 = np.argmin(cluster_mean_loss_step1)
-            no_forest_label_step1 = np.argmax(cluster_mean_loss_step1)
-            
-            # Separate forest and non-forest pixels
-            forest_mask = (gmm_step1_labels == forest_label_step1)
-            no_forest_mask = (gmm_step1_labels == no_forest_label_step1)
-            
-            # Step 2: Further classify non-forest pixels into "original no forest" vs "recent deforestation + roads"
-            no_forest_pixels = norm_pixel_loss[no_forest_mask].reshape(-1, 1)
-            gmm_step2 = GaussianMixture(n_components=2, random_state=0).fit(no_forest_pixels)
-            gmm_step2_labels = gmm_step2.predict(no_forest_pixels)
-            
-            # Map the labels from step 2 back to the original image coordinates
-            no_forest_labels_img = np.zeros_like(gmm_step1_labels[no_forest_mask])
-            no_forest_labels_img[:] = gmm_step2_labels
-            
-            # Based on the mean MSE, we can judge the original forest-free area (low MSE) and the "recent deforestation + roads" (high MSE).
-            cluster_mean_loss_step2 = [
-                norm_pixel_loss[no_forest_mask][no_forest_labels_img == i].mean() 
-                for i in range(2)
-            ]
-            original_no_forest_label_step2 = np.argmin(cluster_mean_loss_step2)
-            newdef_road_label_step2 = np.argmax(cluster_mean_loss_step2)
-            
-            original_no_forest_mask = np.zeros_like(gmm_step1_labels, dtype=bool)
-            original_no_forest_mask[no_forest_mask] = (no_forest_labels_img == original_no_forest_label_step2)
-            
-            newdef_road_mask = np.zeros_like(gmm_step1_labels, dtype=bool)
-            newdef_road_mask[no_forest_mask] = (no_forest_labels_img == newdef_road_label_step2)
-            
-            # Step 3: Subdivide "Recently Deforested + Road" pixels
-            newdef_road_pixels = norm_pixel_loss[newdef_road_mask].reshape(-1, 1)
-            gmm_step3 = GaussianMixture(n_components=2, random_state=0).fit(newdef_road_pixels)
-            gmm_step3_labels = gmm_step3.predict(newdef_road_pixels)
-            
-            # Map back to the original image position
-            newdef_road_labels_img = np.zeros_like(gmm_step1_labels[newdef_road_mask])
-            newdef_road_labels_img[:] = gmm_step3_labels
-            
-            # Judging "recent deforestation" (low MSE) and "road" (high MSE) based on the mean MSE
-            cluster_mean_loss_step3 = [
-                norm_pixel_loss[newdef_road_mask][newdef_road_labels_img == i].mean() 
-                for i in range(2)
-            ]
-            newdef_label_step3 = np.argmin(cluster_mean_loss_step3)
-            road_label_step3 = np.argmax(cluster_mean_loss_step3)
-            
-            newdef_mask = np.zeros_like(gmm_step1_labels, dtype=bool)
-            newdef_mask[newdef_road_mask] = (newdef_road_labels_img == newdef_label_step3)
-            
-            road_mask = np.zeros_like(gmm_step1_labels, dtype=bool)
-            road_mask[newdef_road_mask] = (newdef_road_labels_img == road_label_step3)
-            
-            semantic_anomaly_map = np.zeros_like(gmm_step1_labels)
-            semantic_anomaly_map[forest_mask] = 0
-            semantic_anomaly_map[original_no_forest_mask] = 1
-            semantic_anomaly_map[newdef_mask] = 2
-            semantic_anomaly_map[road_mask] = 3
-            """
-            
-            
-            #3 classes clustering fllowed by another 2 classes clustering
-            """
-            # 原来的三分类GMM
-            flattened_loss = norm_pixel_loss.flatten().reshape(-1, 1)
-            gmm = GaussianMixture(n_components=3, random_state=0).fit(flattened_loss)
-            gmm_labels = gmm.predict(flattened_loss)
-            anomaly_labels = gmm_labels.reshape(norm_pixel_loss.shape)
-            
-            # 根据均值MSE分配语义类别
-            cluster_mean_loss = [norm_pixel_loss[anomaly_labels == i].mean() for i in range(3)]
-            sorted_clusters = np.argsort(cluster_mean_loss)  # 从低MSE到高MSE排序
-            forest_label = sorted_clusters[0]         # 最低MSE: 森林
-            no_forest_label = sorted_clusters[1]  # 中间MSE: 无森林
-            deforestation_label = sorted_clusters[2]       # 最高MSE: 新近毁林
-            
-            # 第一次分类后的语义图(3类)
-            semantic_anomaly_map = np.zeros_like(anomaly_labels)
-            semantic_anomaly_map[anomaly_labels == forest_label] = 0
-            semantic_anomaly_map[anomaly_labels == no_forest_label] = 1
-            semantic_anomaly_map[anomaly_labels == deforestation_label] = 2
-            
-            # 针对 "新近毁林" 的像素再次做二次GMM分类，区分出"新近毁林"和"道路"
-            deforestation_mask = (semantic_anomaly_map == 2)
-            deforestation_pixels = norm_pixel_loss[deforestation_mask].reshape(-1, 1)
-            
-            if len(deforestation_pixels) > 0:
-                gmm_def = GaussianMixture(n_components=2, random_state=0).fit(deforestation_pixels)
-                def_labels = gmm_def.predict(deforestation_pixels)
-                
-                # 根据MSE均值判断哪个是新近毁林(低MSE)哪个是道路(高MSE)
-                def_cluster_mean_loss = [
-                    deforestation_pixels[def_labels == i].mean() for i in range(2)
-                ]
-                newdef_label = np.argmin(def_cluster_mean_loss)
-                road_label = np.argmax(def_cluster_mean_loss)
-                
-                # 创建与原始图像相同大小的数组，并填充二次聚类结果
-                refined_def_map_full = np.zeros_like(semantic_anomaly_map, dtype=int)
-                refined_def_map_full[deforestation_mask] = def_labels
-                
-                # 将新标签更新到语义异常图中
-                semantic_anomaly_map[(refined_def_map_full == newdef_label) & deforestation_mask] = 2  # 新近毁林
-                semantic_anomaly_map[(refined_def_map_full == road_label) & deforestation_mask] = 3  # 道路
-            """
-            
-            # 绘图展示结果
             plt.figure(figsize=(18, 6))
             
-            # 原始图像
             plt.subplot(1, 3, 1)
             plt.imshow(original_img[0], cmap='gray')
             plt.title('Original Image')
             plt.axis('off')
             
-            # 热力图
             plt.subplot(1, 3, 2)
             plt.imshow(norm_pixel_loss, cmap='magma', vmin=0, vmax=1.0)
             plt.colorbar(label='Normalized MSE Loss')
             plt.title('Anomaly Heat Map')
             plt.axis('off')
             
-            # 最终语义分类图：0:森林, 1:新近毁林, 2:无森林, 3:道路
             plt.subplot(1, 3, 3)
-            plt.imshow(semantic_anomaly_map, cmap='tab10', alpha=0.8)
-            plt.title('Semantic Map (Forest=0, NoForest=1, NewDef=2, Road=3)')
+            plt.imshow(filtered_anomaly_map, cmap='bone', vmin=0, vmax=1, alpha=0.8)
+            plt.title('Semantic Anomaly Map')
             plt.axis('off')
             
             # Save the visualization
@@ -386,6 +261,165 @@ class LossDistributionAnalysis:
             plt.savefig(vis_save_path, bbox_inches='tight')
             plt.close()
             print(f"Anomaly detection visualization with refined deforestation clustering saved at {vis_save_path}")
+
+#####################################################################################################################################################
+
+    def _reconstruct_and_analyze_images_over_time(self, anomaly_threshold, base_filename_part="622_975_S1A__IW___D_", suffix="_VV_gamma0-rtc_db_0_0_fused.tif", num_images=30):
+        """
+        重建并分析同一地理位置的多张图像，生成热力图和异常语义图，并绘制随时间变化的可视化结果。
+
+        参数:
+        - anomaly_threshold: 像素级异常检测阈值。
+        - base_filename_part: 文件名的共同部分。
+        - suffix: 文件名的后缀部分。
+        - num_images: 要加载和分析的图像数量（默认15张）。
+        """
+        # 定义图像目录
+        image_dir = "/home/yifan/Documents/data/forest/test/processed"
+
+        # 构建文件匹配的正则表达式
+        pattern = os.path.join(image_dir, f"{base_filename_part}*{suffix}")
+        image_paths = glob.glob(pattern)
+
+        if len(image_paths) == 0:
+            print("未找到匹配的图像文件。请检查文件路径和命名格式。")
+            return
+
+        # 提取日期并排序
+        def extract_date(path):
+            match = re.search(r'D_(\d{8})T', path)
+            if match:
+                return datetime.strptime(match.group(1), "%Y%m%d")
+            else:
+                return datetime.min  # 如果无法提取日期，放在最前面
+
+        image_paths.sort(key=extract_date)
+
+        # 选择前 num_images 张图像
+        selected_image_paths = image_paths[:num_images]
+
+        if len(selected_image_paths) < num_images:
+            print(f"找到的图像数量少于 {num_images} 张：{len(selected_image_paths)} 张。")
+            return
+
+        print(f"已选择 {num_images} 张图像进行分析，按照时间顺序排序。")
+
+        # 定义图像转换，与 ProcessedForestDataset 中的转换保持一致
+        transform = transforms.Compose([
+            # 在这里添加任何必要的转换，例如归一化
+            # 目前没有应用任何转换，与数据集加载器保持一致
+        ])
+        
+        # 准备绘图，num_images 行 2 列（原始图像和热力图）
+        fig, axes = plt.subplots(num_images, 2, figsize=(12, num_images * 4))
+        
+        min_val = None
+        max_val = None
+        
+        for idx, img_path in enumerate(selected_image_paths):
+            # 加载图像
+            combined_image = tiff.imread(img_path)  # 读取多通道 TIFF 图像
+            #print(f"加载图像 {img_path} 的形状为: {combined_image.shape}")
+            
+            # 处理图像维度，确保为 (C, H, W) 并且有2个通道
+            if combined_image.ndim == 2:
+                # 单通道 (H, W) 转为 (1, H, W)
+                combined_image = combined_image[np.newaxis, ...]
+            elif combined_image.ndim == 3:
+                if combined_image.shape[0] == 2:
+                    # (C, H, W) 已经是正确的格式
+                    pass
+                elif combined_image.shape[-1] == 2:
+                    # (H, W, C) 转为 (C, H, W)
+                    combined_image = np.transpose(combined_image, (2, 0, 1))
+                else:
+                    raise ValueError(f"期望的通道数为2，但在文件 {img_path} 中找到了 {combined_image.shape[-1]} 个通道。")
+            else:
+                raise ValueError(f"图像维度不正确：{combined_image.ndim}，文件路径：{img_path}")
+            
+            if combined_image.shape[0] != 2:
+                raise ValueError(f"期望的通道数为2，但在文件 {img_path} 中找到了 {combined_image.shape[0]} 个通道。")
+            
+            # 将图像转换为 Tensor
+            img_tensor = torch.from_numpy(combined_image).float()
+            
+            # 归一化（如果需要）
+            if min_val is not None and max_val is not None:
+                img_tensor = (img_tensor - min_val) / (max_val - min_val + 1e-8)
+                img_tensor = torch.clamp(img_tensor, 0.0, 1.0)  # 将值限制在 [0, 1] 之间
+
+            # 应用转换（如果有）
+            if transform:
+                img_tensor = transform(img_tensor)
+
+            # 添加 batch 维度并移动到设备
+            img_tensor = img_tensor.unsqueeze(0).to(self.device)
+
+            # 模型推理
+            self.model.eval()
+            with torch.no_grad():
+                recon = self.model(img_tensor)
+                if isinstance(recon, tuple):
+                    recon = recon[0]
+
+            # 计算像素级 MSE 损失
+            loss_fn = MSELoss(reduction='none')
+            pixel_loss = loss_fn(recon, img_tensor)
+            # 对所有通道求和，得到 (H, W) 的损失图
+            pixel_loss_sum = pixel_loss.sum(dim=1).squeeze(0).cpu().numpy()
+
+            # 生成热力图
+            pixel_loss_sum = np.log(pixel_loss_sum + 1e-8)  # 应用对数以增强差异
+            min_loss = np.percentile(pixel_loss_sum, 1)
+            max_loss = np.percentile(pixel_loss_sum, 99)
+            clipped_loss = np.clip(pixel_loss_sum, min_loss, max_loss)
+            norm_pixel_loss = (clipped_loss - min_loss) / (max_loss - min_loss + 1e-8)
+
+            # KMeans 聚类，将像素分为正常和异常两类
+            flattened_loss = norm_pixel_loss.flatten().reshape(-1, 1)
+            kmeans = KMeans(n_clusters=2, random_state=0).fit(flattened_loss)
+            anomaly_labels = kmeans.labels_.reshape(norm_pixel_loss.shape)
+
+            # 确定异常类别（均值较大的类别）
+            cluster_mean_loss = [norm_pixel_loss[anomaly_labels == i].mean() for i in range(2)]
+            anomaly_cluster = cluster_mean_loss.index(max(cluster_mean_loss))
+            binary_anomaly_map = (anomaly_labels == anomaly_cluster).astype(int)
+
+            # 连通组件分析，过滤小的异常区域
+            labeled_map, num_features = label(binary_anomaly_map)
+            filtered_anomaly_map = np.zeros_like(binary_anomaly_map)
+            for i in range(1, num_features + 1):
+                component = (labeled_map == i)
+                if component.sum() >= 30:  # 空间连续性阈值
+                    filtered_anomaly_map[component] = 1
+
+            # **两通道按像素相加，生成单通道图像**
+            summed_image = combined_image.sum(axis=0)  # 形状从 (2, H, W) -> (H, W)
+
+            # 将相加后的图像进行归一化
+            if min_val is not None and max_val is not None:
+                summed_image = (summed_image - min_val) / (max_val - min_val + 1e-8)
+                summed_image = np.clip(summed_image, 0.0, 1.0)  # 将值限制在 [0, 1] 之间
+
+            # **绘制相加后的原始图像**
+            ax_orig = axes[idx, 0] if num_images > 1 else axes[0]
+            ax_orig.imshow(summed_image, cmap='gray')
+            ax_orig.set_title(f'original image {idx+1}')
+            ax_orig.axis('off')
+
+            # **绘制热力图**
+            ax_heat = axes[idx, 1] if num_images > 1 else axes[1]
+            heatmap = ax_heat.imshow(norm_pixel_loss, cmap='magma', vmin=0, vmax=1.0)
+            ax_heat.set_title(f'anomaly heat map {idx+1}')
+            ax_heat.axis('off')
+            # 为每个热力图添加单独的颜色条
+            plt.colorbar(heatmap, ax=ax_heat, fraction=0.046, pad=0.04, label=' MSE loss')
+
+        plt.tight_layout()
+        vis_save_path = os.path.join(self.args.results_path, 'anomaly_detection_over_time.png')
+        plt.savefig(vis_save_path, bbox_inches='tight')
+        plt.close()
+        print(f"随时间变化的异常检测结果已保存到 {vis_save_path}")
 
 #####################################################################################################################################################
 

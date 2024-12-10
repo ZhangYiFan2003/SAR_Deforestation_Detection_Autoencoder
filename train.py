@@ -22,7 +22,7 @@ parser.add_argument('--test', action='store_true', default=True,
 # Training hyperparameters
 parser.add_argument('--batch-size', type=int, default=8, metavar='N',
                     help='input batch size for training (default: 128)')
-parser.add_argument('--epochs', type=int, default=11, metavar='N',
+parser.add_argument('--epochs', type=int, default=15, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='enables CUDA training')
