@@ -40,7 +40,7 @@ parser.add_argument('--dataset', type=str, default='FOREST', metavar='N',
                     help='Which dataset to use')
 parser.add_argument('--patience', type=int, default=5, 
                     help='Patience for early stopping')
-parser.add_argument('--delta', type=float, default=0.01, 
+parser.add_argument('--delta', type=float, default=0.000000000001, 
                     help='Minimum change to qualify as improvement for early stopping')
 
 #####################################################################################################################################################

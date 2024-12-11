@@ -150,8 +150,9 @@ class LossDistributionAnalysis:
         test_image_index = 1566 #2022.9.19: with index from 1566 to 1592
         
         # Analyze images for anomaly detection based on this threshold
-        self._reconstruct_and_analyze_images(anomaly_threshold, image_index=test_image_index)
-        self._reconstruct_and_analyze_images_over_time(anomaly_threshold=0.5)
+        #self._reconstruct_and_analyze_images(anomaly_threshold, image_index=test_image_index)
+        self._reconstruct_and_analyze_images_over_time(target_date="20220721")
+        #self.plot_pixel_error_histogram()
         #self._compare_pixel_mse_histograms(val_image_index=val_image_index, test_image_index=test_image_index)
 
 #####################################################################################################################################################
@@ -264,27 +265,28 @@ class LossDistributionAnalysis:
 
 #####################################################################################################################################################
 
-    def _reconstruct_and_analyze_images_over_time(self, anomaly_threshold, base_filename_part="622_975_S1A__IW___D_", suffix="_VV_gamma0-rtc_db_0_0_fused.tif", num_images=30):
+    def _reconstruct_and_analyze_images_over_time(self, target_date, base_filename_part="622_975_S1A__IW___D_", suffix="_VV_gamma0-rtc_db_0_0_fused.tif"):
         """
-        重建并分析同一地理位置的多张图像，生成热力图和异常语义图，并绘制随时间变化的可视化结果。
+        重建并分析特定日期及其前后五天的图像，生成热力图和异常语义图，并绘制随时间变化的可视化结果。
 
         参数:
         - anomaly_threshold: 像素级异常检测阈值。
+        - target_date: 目标日期，格式为 "YYYYMMDD"。
         - base_filename_part: 文件名的共同部分。
         - suffix: 文件名的后缀部分。
-        - num_images: 要加载和分析的图像数量（默认15张）。
         """
+        
         # 定义图像目录
         image_dir = "/home/yifan/Documents/data/forest/test/processed"
-
+        
         # 构建文件匹配的正则表达式
         pattern = os.path.join(image_dir, f"{base_filename_part}*{suffix}")
         image_paths = glob.glob(pattern)
-
+        
         if len(image_paths) == 0:
             print("未找到匹配的图像文件。请检查文件路径和命名格式。")
             return
-
+        
         # 提取日期并排序
         def extract_date(path):
             match = re.search(r'D_(\d{8})T', path)
@@ -292,29 +294,52 @@ class LossDistributionAnalysis:
                 return datetime.strptime(match.group(1), "%Y%m%d")
             else:
                 return datetime.min  # 如果无法提取日期，放在最前面
-
+            
         image_paths.sort(key=extract_date)
-
-        # 选择前 num_images 张图像
-        selected_image_paths = image_paths[:num_images]
-
-        if len(selected_image_paths) < num_images:
-            print(f"找到的图像数量少于 {num_images} 张：{len(selected_image_paths)} 张。")
+        
+        # 转换目标日期为 datetime 对象
+        try:
+            target_datetime = datetime.strptime(target_date, "%Y%m%d")
+        except ValueError:
+            print("目标日期格式不正确。请使用 'YYYYMMDD' 格式。")
             return
-
-        print(f"已选择 {num_images} 张图像进行分析，按照时间顺序排序。")
-
+        
+        # 查找目标日期的索引
+        dates = [extract_date(path) for path in image_paths]
+        if target_datetime not in dates:
+            print(f"未找到目标日期 {target_date} 的图像。")
+            return
+        
+        target_index = dates.index(target_datetime)
+        
+        # 选择目标图像及其前后五张图像
+        start_index = max(target_index - 5, 0)
+        end_index = min(target_index + 5 + 1, len(image_paths))  # +1 因为切片不包括 end_index
+        selected_image_paths = image_paths[start_index:end_index]
+        
+        # 检查是否选中11张图像
+        if len(selected_image_paths) < 11:
+            print(f"选择的图像数量少于11张：{len(selected_image_paths)} 张。")
+            return
+        
+        print(f"已选择日期 {target_date} 及其前后5天的11张图像进行分析，按照时间顺序排序。")
+        
         # 定义图像转换，与 ProcessedForestDataset 中的转换保持一致
         transform = transforms.Compose([
             # 在这里添加任何必要的转换，例如归一化
             # 目前没有应用任何转换，与数据集加载器保持一致
         ])
         
+        num_images = len(selected_image_paths)
+        
         # 准备绘图，num_images 行 2 列（原始图像和热力图）
-        fig, axes = plt.subplots(num_images, 2, figsize=(12, num_images * 4))
+        fig, axes = plt.subplots(2, num_images, figsize=(num_images * 4, 8))
         
         min_val = None
         max_val = None
+        
+        mse_min = 0
+        mse_max = 1000
         
         for idx, img_path in enumerate(selected_image_paths):
             # 加载图像
@@ -347,44 +372,42 @@ class LossDistributionAnalysis:
             if min_val is not None and max_val is not None:
                 img_tensor = (img_tensor - min_val) / (max_val - min_val + 1e-8)
                 img_tensor = torch.clamp(img_tensor, 0.0, 1.0)  # 将值限制在 [0, 1] 之间
-
+                
             # 应用转换（如果有）
             if transform:
                 img_tensor = transform(img_tensor)
-
+                
             # 添加 batch 维度并移动到设备
             img_tensor = img_tensor.unsqueeze(0).to(self.device)
-
+            
             # 模型推理
             self.model.eval()
             with torch.no_grad():
                 recon = self.model(img_tensor)
                 if isinstance(recon, tuple):
                     recon = recon[0]
-
+                    
             # 计算像素级 MSE 损失
             loss_fn = MSELoss(reduction='none')
             pixel_loss = loss_fn(recon, img_tensor)
             # 对所有通道求和，得到 (H, W) 的损失图
             pixel_loss_sum = pixel_loss.sum(dim=1).squeeze(0).cpu().numpy()
-
+            
             # 生成热力图
-            pixel_loss_sum = np.log(pixel_loss_sum + 1e-8)  # 应用对数以增强差异
-            min_loss = np.percentile(pixel_loss_sum, 1)
-            max_loss = np.percentile(pixel_loss_sum, 99)
-            clipped_loss = np.clip(pixel_loss_sum, min_loss, max_loss)
-            norm_pixel_loss = (clipped_loss - min_loss) / (max_loss - min_loss + 1e-8)
-
+            # 直接根据已知的MSE范围进行归一化
+            norm_pixel_loss = pixel_loss_sum / mse_max  # 归一化到 [0,1]
+            norm_pixel_loss = np.clip(norm_pixel_loss, 0.0, 1.0)  # 确保值在 [0,1] 之间
+            
             # KMeans 聚类，将像素分为正常和异常两类
             flattened_loss = norm_pixel_loss.flatten().reshape(-1, 1)
             kmeans = KMeans(n_clusters=2, random_state=0).fit(flattened_loss)
             anomaly_labels = kmeans.labels_.reshape(norm_pixel_loss.shape)
-
+            
             # 确定异常类别（均值较大的类别）
             cluster_mean_loss = [norm_pixel_loss[anomaly_labels == i].mean() for i in range(2)]
             anomaly_cluster = cluster_mean_loss.index(max(cluster_mean_loss))
             binary_anomaly_map = (anomaly_labels == anomaly_cluster).astype(int)
-
+            
             # 连通组件分析，过滤小的异常区域
             labeled_map, num_features = label(binary_anomaly_map)
             filtered_anomaly_map = np.zeros_like(binary_anomaly_map)
@@ -392,34 +415,146 @@ class LossDistributionAnalysis:
                 component = (labeled_map == i)
                 if component.sum() >= 30:  # 空间连续性阈值
                     filtered_anomaly_map[component] = 1
-
+                    
             # **两通道按像素相加，生成单通道图像**
             summed_image = combined_image.sum(axis=0)  # 形状从 (2, H, W) -> (H, W)
-
+            
             # 将相加后的图像进行归一化
             if min_val is not None and max_val is not None:
                 summed_image = (summed_image - min_val) / (max_val - min_val + 1e-8)
                 summed_image = np.clip(summed_image, 0.0, 1.0)  # 将值限制在 [0, 1] 之间
-
+                
             # **绘制相加后的原始图像**
-            ax_orig = axes[idx, 0] if num_images > 1 else axes[0]
+            ax_orig = axes[0, idx]
             ax_orig.imshow(summed_image, cmap='gray')
-            ax_orig.set_title(f'original image {idx+1}')
+            current_date = extract_date(img_path).strftime("%Y-%m-%d")
+            ax_orig.set_title(f'original image {current_date}')
             ax_orig.axis('off')
-
+            
             # **绘制热力图**
-            ax_heat = axes[idx, 1] if num_images > 1 else axes[1]
+            ax_heat = axes[1, idx]
             heatmap = ax_heat.imshow(norm_pixel_loss, cmap='magma', vmin=0, vmax=1.0)
-            ax_heat.set_title(f'anomaly heat map {idx+1}')
+            ax_heat.set_title(f'anomaly heat map {current_date}')
             ax_heat.axis('off')
             # 为每个热力图添加单独的颜色条
-            plt.colorbar(heatmap, ax=ax_heat, fraction=0.046, pad=0.04, label=' MSE loss')
-
+            plt.colorbar(heatmap, ax=ax_heat, fraction=0.046, pad=0.04, label='MSE loss')
+            
         plt.tight_layout()
         vis_save_path = os.path.join(self.args.results_path, 'anomaly_detection_over_time.png')
         plt.savefig(vis_save_path, bbox_inches='tight')
         plt.close()
         print(f"随时间变化的异常检测结果已保存到 {vis_save_path}")
+
+#####################################################################################################################################################
+
+    def plot_pixel_error_histogram(self, image_dir="/home/yifan/Documents/data/forest/test/processed", num_bins=1000):
+        """
+        计算测试数据集中所有图像的像素级MSE，绘制误差直方图，并计算最小值和最大值。
+        
+        参数:
+        - image_dir: 测试图像存储目录。
+        - num_bins: 直方图的柱子数量（默认100）。
+        """
+
+        # 获取所有TIFF图像文件
+        pattern = os.path.join(image_dir, "*.tif")
+        image_paths = glob.glob(pattern)
+
+        if len(image_paths) == 0:
+            print("未找到测试数据集中的TIFF图像文件。请检查文件路径和文件格式。")
+            return
+
+        # 定义图像转换，与 ProcessedForestDataset 中的转换保持一致
+        transform = transforms.Compose([
+            # 在这里添加任何必要的转换，例如归一化
+            # 目前没有应用任何转换，与数据集加载器保持一致
+        ])
+
+        loss_fn = MSELoss(reduction='none')
+        all_pixel_errors = []
+
+        print("开始计算所有测试图像的像素级误差...")
+
+        for idx, img_path in enumerate(image_paths):
+            try:
+                # 加载图像
+                combined_image = tiff.imread(img_path)  # 读取多通道 TIFF 图像
+
+                # 处理图像维度，确保为 (C, H, W) 并且有2个通道
+                if combined_image.ndim == 2:
+                    # 单通道 (H, W) 转为 (1, H, W)
+                    combined_image = combined_image[np.newaxis, ...]
+                elif combined_image.ndim == 3:
+                    if combined_image.shape[0] == 2:
+                        # (C, H, W) 已经是正确的格式
+                        pass
+                    elif combined_image.shape[-1] == 2:
+                        # (H, W, C) 转为 (C, H, W)
+                        combined_image = np.transpose(combined_image, (2, 0, 1))
+                    else:
+                        raise ValueError(f"期望的通道数为2，但在文件 {img_path} 中找到了 {combined_image.shape[-1]} 个通道。")
+                else:
+                    raise ValueError(f"图像维度不正确：{combined_image.ndim}，文件路径：{img_path}")
+
+                if combined_image.shape[0] != 2:
+                    raise ValueError(f"期望的通道数为2，但在文件 {img_path} 中找到了 {combined_image.shape[0]} 个通道。")
+
+                # 将图像转换为 Tensor
+                img_tensor = torch.from_numpy(combined_image).float()
+
+                # 归一化（如果需要）
+                # 根据您的需求，这里暂时不进行归一化操作
+                # 如果需要，可以根据实际情况添加
+
+                # 应用转换（如果有）
+                if transform:
+                    img_tensor = transform(img_tensor)
+
+                # 添加 batch 维度并移动到设备
+                img_tensor = img_tensor.unsqueeze(0).to(self.device)
+
+                # 模型推理
+                self.model.eval()
+                with torch.no_grad():
+                    recon = self.model(img_tensor)
+                    if isinstance(recon, tuple):
+                        recon = recon[0]
+
+                # 计算像素级 MSE 损失
+                pixel_loss = loss_fn(recon, img_tensor)
+                # 对所有通道求和，得到 (H, W) 的损失图
+                pixel_loss_sum = pixel_loss.sum(dim=1).squeeze(0).cpu().numpy()
+
+                # 收集所有像素误差
+                all_pixel_errors.extend(pixel_loss_sum.flatten())
+
+                if (idx + 1) % 50 == 0 or (idx + 1) == len(image_paths):
+                    print(f"{idx + 1} / {len(image_paths)} images traité。")
+
+            except Exception as e:
+                print(f"处理图像 {img_path} 时出错：{e}")
+                continue
+
+        # 转换为 NumPy 数组
+        all_pixel_errors = np.array(all_pixel_errors)
+
+        # 计算最小值和最大值
+        min_mse = all_pixel_errors.min()
+        max_mse = all_pixel_errors.max()
+        print(f"MSE minimum au niveau des pixels de toutes les images de test: {min_mse}")
+        print(f"MSE maximum au niveau des pixels de toutes les images de test: {max_mse}")
+
+        # 绘制直方图
+        plt.figure(figsize=(10, 6))
+        plt.hist(all_pixel_errors, bins=num_bins, color='skyblue', edgecolor='black')
+        plt.title('Histogramme d erreur au niveau des pixels pour toutes les images de test')
+        plt.xlabel('Erreur MSE au niveau du pixel')
+        plt.ylabel('Nombre de pixels')
+        plt.grid(True)
+        hist_save_path = os.path.join(self.args.results_path, 'pixel_error_histogram.png')
+        plt.savefig(hist_save_path, bbox_inches='tight')
+        plt.close()
+        print(f"像素级误差直方图已保存到 {hist_save_path}")
 
 #####################################################################################################################################################
 
