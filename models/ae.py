@@ -77,7 +77,7 @@ class AE(object):
         """
         recon_x = recon_x.view(-1, 2 * 256 * 256)
         x = x.view(-1, 2 * 256 * 256)
-        MSE = F.mse_loss(recon_x, x, reduction='mean')
+        MSE = F.mse_loss(recon_x, x, reduction='sum')
         return MSE
 
 #####################################################################################################################################################

@@ -116,7 +116,7 @@ class VAE(object):
         x = x.view(-1, 2 * 256 * 256)
         
         # MSE loss for reconstruction
-        MSE = F.mse_loss(recon_x, x, reduction='mean')
+        MSE = F.mse_loss(recon_x, x, reduction='sum')
         
         # Clamp logvar to ensure numerical stability
         logvar = torch.clamp(logvar, min=-10, max=10)
