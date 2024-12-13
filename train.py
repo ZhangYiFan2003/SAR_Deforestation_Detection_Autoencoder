@@ -4,7 +4,7 @@ import optuna
 from models.variational_autoencoder import VAE
 from models.autoencoder import AE
 from datasets.data_loader import ProcessedForestDataLoader  
-from anomaly_detection.anomaly_detection_pipeline import LossDistributionAnalysis
+from anomaly_detection.main_pipeline import AnomalyDetectionPipeline
 from hyperparameter_optimize.optuna_optimization import objective
 
 # Command-line arguments for training and testing options
@@ -91,7 +91,7 @@ if __name__ == "__main__":
         sys.exit()
         
     # Instantiate LossDistributionAnalysis
-    loss_analysis = LossDistributionAnalysis(autoenc.model, data_loader.train_loader, 
+    anomaly_detection = AnomalyDetectionPipeline(autoenc.model, data_loader.train_loader, 
                                              data_loader.validation_loader, data_loader.test_loader, autoenc.device, args)
 
 #####################################################################################################################################################
@@ -164,5 +164,4 @@ if __name__ == "__main__":
             print("Test loader is not initialized. Please use --add-deforestation-test to add test dataset.")
             sys.exit()
         
-        # test and plot mse error per-pixel distribution
-        loss_analysis.train_and_validation_and_test_loss_distribution()
+        anomaly_detection.reconstruct_and_analyze_images_by_time_sequence(target_date="20220721")
