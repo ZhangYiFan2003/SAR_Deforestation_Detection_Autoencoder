@@ -12,7 +12,7 @@ parser = argparse.ArgumentParser(
     description='Main function to call training for different AutoEncoders')
 parser.add_argument('--use-optuna', action='store_true', default=False,
                     help='Enable Optuna for hyperparameter optimization')
-parser.add_argument('--train', action='store_true', default=True,
+parser.add_argument('--train', action='store_true', default=False,
                     help='Choose whether to train the model')
 parser.add_argument('--test', action='store_true', default=True,
                     help='Choose whether to test the model with the latest saved weights')
@@ -164,4 +164,5 @@ if __name__ == "__main__":
             print("Test loader is not initialized. Please use --add-deforestation-test to add test dataset.")
             sys.exit()
         
-        anomaly_detection.reconstruct_and_analyze_images_by_time_sequence(target_date="20220721")
+        anomaly_detection.reconstruct_and_analyze_images_by_time_sequence(target_date = "20220721")
+        anomaly_detection.reconstruct_and_analyze_images_by_clustering(target_date = "20220721")

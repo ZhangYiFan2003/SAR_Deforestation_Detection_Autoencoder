@@ -17,213 +17,341 @@ import torchvision.transforms as transforms
 
 class AnomalyDetection:
     def reconstruct_and_analyze_images(self, anomaly_threshold, image_index=None):
+        """
+        重建并分析单张图像以检测异常。
+        
+        Args:
+            anomaly_threshold (float): 异常检测的阈值。
+            image_index (int, optional): 指定要分析的图像索引。如果为 None，则随机选择一张图像。
+        """
+        # 选择图像
         if image_index is not None:
             print(f"Selecting image at index {image_index} from the test dataset...")
         else:
             print("Randomly selecting one image...")
+        
+        # 设置模型为评估模式
         self.model.eval()
+        
         with torch.no_grad():
             if image_index is not None:
                 dataset = self.test_loader.dataset
                 if image_index < 0 or image_index >= len(dataset):
                     print(f"Image index {image_index} out of bounds.")
                     return
+                
+                # 获取指定索引的图像数据
                 data = dataset[image_index]
                 if isinstance(data, (tuple, list)):
                     data = data[0]
                 data = data.unsqueeze(0).to(self.device)
             else:
+                # 随机选择一个批次中的随机图像
                 all_test_images = list(self.test_loader)
                 selected_batch = random.choice(all_test_images)
                 rand_image_index = random.randint(0, selected_batch.size(0) - 1)
                 data = selected_batch[rand_image_index].unsqueeze(0).to(self.device)
                 print(f"Randomly selected image from batch index {rand_image_index}.")
-
+        
+            # 模型前向传播，获取重建图像
             recon_data = self.model(data)
             if isinstance(recon_data, tuple):
                 recon_data = recon_data[0]
+            
+            # 计算像素级MSE损失
             loss_fn = MSELoss(reduction='none')
             pixel_loss = loss_fn(recon_data, data)  
             pixel_loss = pixel_loss.squeeze(0).cpu().numpy()
+            
+            # 获取原始图像
             original_img = data.squeeze(0).cpu().numpy()
+            
+            # 计算每个像素的损失总和，并进行对数变换
             pixel_loss_sum = loss_fn(recon_data, data).sum(dim=1).squeeze(0).cpu().numpy()
             pixel_loss_sum = np.log(pixel_loss_sum + 1e-8)
+            
+            # 计算损失的百分位数用于裁剪
             min_loss = np.percentile(pixel_loss_sum, 1)
             max_loss = np.percentile(pixel_loss_sum, 99)
             clipped_loss = np.clip(pixel_loss_sum, min_loss, max_loss)
+            
+            # 归一化损失
             norm_pixel_loss = (clipped_loss - min_loss) / (max_loss - min_loss + 1e-8)
+            
+            # 扁平化损失并进行KMeans聚类
             flattened_loss = norm_pixel_loss.flatten().reshape(-1, 1)
             kmeans = KMeans(n_clusters=2, random_state=0).fit(flattened_loss)
             anomaly_labels = kmeans.labels_.reshape(norm_pixel_loss.shape)
+            
+            # 计算每个簇的平均损失，确定异常簇
             cluster_mean_loss = [norm_pixel_loss[anomaly_labels == i].mean() for i in range(2)]
             anomaly_cluster = cluster_mean_loss.index(max(cluster_mean_loss))
+            
+            # 生成二值异常图
             binary_anomaly_map = (anomaly_labels == anomaly_cluster).astype(int)
+            
+            # 连通组件标记
             labeled_map, num_features = label(binary_anomaly_map)
             filtered_anomaly_map = np.zeros_like(binary_anomaly_map)
+            
+            # 过滤掉小的异常区域
             for i in range(1, num_features + 1):
                 component = (labeled_map == i)
                 if component.sum() >= 30:
                     filtered_anomaly_map[component] = 1
+            
+            # 可视化结果
             plt.figure(figsize=(18, 6))
+            
+            # 原始图像
             plt.subplot(1, 3, 1)
             plt.imshow(original_img[0], cmap='gray')
             plt.title('Original Image')
             plt.axis('off')
+            
+            # 异常热力图
             plt.subplot(1, 3, 2)
             plt.imshow(norm_pixel_loss, cmap='magma', vmin=0, vmax=1.0)
             plt.colorbar(label='Normalized MSE Loss')
             plt.title('Anomaly Heat Map')
             plt.axis('off')
+            
+            # 语义异常图
             plt.subplot(1, 3, 3)
             plt.imshow(filtered_anomaly_map, cmap='bone', vmin=0, vmax=1, alpha=0.8)
             plt.title('Semantic Anomaly Map')
             plt.axis('off')
+            
+            # 保存可视化结果
             vis_save_path = os.path.join(self.args.results_path, 'anomaly_detection_result.png')
             plt.tight_layout()
             plt.savefig(vis_save_path, bbox_inches='tight')
             plt.close()
             print(f"Anomaly detection visualization saved at {vis_save_path}")
-
-#####################################################################################################################################################
-
+    
+    #####################################################################################################################################################
+    
     def reconstruct_and_analyze_images_by_time_sequence(self, target_date, base_filename_part="622_975_S1A__IW___D_", suffix="_VV_gamma0-rtc_db_0_0_fused.tif"):
+        """
+        按时间序列重建并分析图像，生成热力图和异常分类图。
+        
+        Args:
+            target_date (str): 目标日期，格式为 "YYYYMMDD"。
+            base_filename_part (str, optional): 文件名的共同部分。
+            suffix (str, optional): 文件名的后缀部分。
+        """
         image_dir = "/home/yifan/Documents/data/forest/test/processed"
         pattern = os.path.join(image_dir, f"{base_filename_part}*{suffix}")
         image_paths = glob.glob(pattern)
+        
         if len(image_paths) == 0:
             print("未找到匹配的图像文件。")
             return
+        
+        # 提取并排序图像日期
         def extract_date(path):
             match = re.search(r'D_(\d{8})T', path)
             if match:
                 return datetime.strptime(match.group(1), "%Y%m%d")
             else:
                 return datetime.min
+        
         image_paths.sort(key=extract_date)
+        
+        # 转换目标日期为 datetime 对象
         try:
             target_datetime = datetime.strptime(target_date, "%Y%m%d")
         except ValueError:
             print("目标日期格式不正确。")
             return
+        
         dates = [extract_date(p) for p in image_paths]
+        
         if target_datetime not in dates:
             print(f"未找到目标日期 {target_date} 的图像。")
             return
+        
         target_index = dates.index(target_datetime)
+        
+        # 选择目标图像及其前后五张图像
         start_index = max(target_index - 5, 0)
         end_index = min(target_index + 6, len(image_paths))
         selected_image_paths = image_paths[start_index:end_index]
+        
         if len(selected_image_paths) < 11:
             print(f"选择的图像数量少于11张：{len(selected_image_paths)} 张。")
             return
+        
         print(f"已选择日期 {target_date} 及其前后5天的11张图像。")
+        
+        # 定义图像转换
         transform = transforms.Compose([])
+        
         num_images = len(selected_image_paths)
+        
+        # 准备绘图，5行每行对应不同的可视化内容
         fig, axes = plt.subplots(5, num_images, figsize=(num_images * 4, 25))
+        
         mse_min = 0
         mse_max = 1000
+        
         all_pixel_errors = []
         pixel_loss_sums = []
         image_dates = []
         summed_images = []
         semantic_anomaly_maps = []
+        
         print("开始计算选择的11张图像的像素级误差...")
+        
         for idx, img_path in enumerate(selected_image_paths):
             try:
+                # 加载图像
                 combined_image = tiff.imread(img_path)
+                
+                # 处理图像维度，确保为 (C, H, W) 且有2个通道
                 if combined_image.ndim == 2:
                     combined_image = combined_image[np.newaxis, ...]
                 elif combined_image.ndim == 3:
                     if combined_image.shape[0] != 2 and combined_image.shape[-1] == 2:
                         combined_image = np.transpose(combined_image, (2, 0, 1))
+                
                 if combined_image.shape[0] != 2:
                     raise ValueError("通道数错误")
+                
+                # 转换为Tensor
                 img_tensor = torch.from_numpy(combined_image).float()
+                
                 if transform:
                     img_tensor = transform(img_tensor)
+                
                 img_tensor = img_tensor.unsqueeze(0).to(self.device)
+                
+                # 模型前向传播
                 self.model.eval()
                 with torch.no_grad():
                     recon = self.model(img_tensor)
                     if isinstance(recon, tuple):
                         recon = recon[0]
+                
+                # 计算像素级MSE损失
                 loss_fn = MSELoss(reduction='none')
                 pixel_loss = loss_fn(recon, img_tensor)
                 pixel_loss_sum = pixel_loss.sum(dim=1).squeeze(0).cpu().numpy()
+                
+                # 收集所有像素误差
                 all_pixel_errors.extend(pixel_loss_sum.flatten())
                 pixel_loss_sums.append(pixel_loss_sum)
+                
+                # 记录图像日期
                 current_date = extract_date(img_path).strftime("%Y-%m-%d")
                 image_dates.append(current_date)
+                
+                # 生成并存储summed_image
                 summed_image = combined_image.sum(axis=0)
                 if transform:
                     summed_image = (summed_image - summed_image.min()) / (summed_image.max() - summed_image.min() + 1e-8)
                     summed_image = np.clip(summed_image, 0.0, 1.0)
                 summed_images.append(summed_image)
+                
                 if (idx + 1) % 5 == 0 or (idx + 1) == len(selected_image_paths):
                     print(f"已处理 {idx + 1} / {len(selected_image_paths)} 张图像。")
+            
             except Exception as e:
                 print(f"处理图像 {img_path} 时出错：{e}")
                 continue
+        
+        # 转换为NumPy数组并训练GMM
         all_pixel_errors = np.array(all_pixel_errors).reshape(-1, 1)
         print("开始训练全局GMM...")
         gmm = GaussianMixture(n_components=2, random_state=0)
         gmm.fit(all_pixel_errors)
+        
+        # 确定异常类别（均值较大的组件）
         component_means = gmm.means_.flatten()
         anomaly_cluster = np.argmax(component_means)
         print(f"异常类别为GMM的组件 {anomaly_cluster}，均值为 {component_means[anomaly_cluster]:.4f}")
+        
         H, W = pixel_loss_sums[0].shape
         previous_anomalies = np.zeros((H, W), dtype=bool)
+        
         for idx in range(num_images):
             pixel_loss_sum = pixel_loss_sums[idx]
             current_date = image_dates[idx]
             summed_image = summed_images[idx]
+            
+            # 使用GMM预测标签
             pixel_losses = pixel_loss_sum.flatten().reshape(-1, 1)
             predicted_labels = gmm.predict(pixel_losses)
             anomaly_labels = predicted_labels.reshape(pixel_loss_sum.shape)
+            
+            # 生成二值化的异常图
             binary_anomaly_map = (anomaly_labels == anomaly_cluster).astype(int)
+            
+            # 连通组件标记
             labeled_map, num_features = label(binary_anomaly_map)
             filtered_anomaly_map = np.zeros_like(binary_anomaly_map)
+            
+            # 过滤掉小的异常区域
             for i in range(1, num_features + 1):
                 component = (labeled_map == i)
                 if component.sum() >= 50:
                     filtered_anomaly_map[component] = 1
+            
             semantic_anomaly_maps.append(filtered_anomaly_map)
+            
+            # 分类异常类型
             current_deforestation_map = (filtered_anomaly_map == 1) & (~previous_anomalies)
             ancient_deforestation_map = (filtered_anomaly_map == 1) & (previous_anomalies)
+            
+            # 更新之前的异常状态
             previous_anomalies = previous_anomalies | (filtered_anomaly_map == 1)
+            
+            # 归一化损失
             clipped_loss = np.clip(pixel_loss_sum, mse_min, mse_max)
             norm_pixel_loss = (clipped_loss - mse_min) / (mse_max - mse_min + 1e-8)
+            
+            # 绘制原始图像
             ax_orig = axes[0, idx]
             ax_orig.imshow(summed_image, cmap='gray')
             ax_orig.set_title(f'original image {current_date}')
             ax_orig.axis('off')
+            
+            # 绘制热力图
             ax_heat = axes[1, idx]
             heatmap = ax_heat.imshow(norm_pixel_loss, cmap='magma', vmin=0, vmax=1.0)
             ax_heat.set_title(f'heat map {current_date}')
             ax_heat.axis('off')
             plt.colorbar(heatmap, ax=ax_heat, fraction=0.046, pad=0.04, label='MSE loss')
+            
+            # 绘制语义异常图
             ax_cluster = axes[2, idx]
             cluster_map = semantic_anomaly_maps[-1]
             ax_cluster.imshow(cluster_map, cmap='bone', vmin=0, vmax=1, alpha=0.8)
             ax_cluster.set_title(f'semantic anomaly map {current_date}')
             ax_cluster.axis('off')
+            
+            # 绘制当前砍伐图
             ax_current = axes[3, idx]
             ax_current.imshow(current_deforestation_map, cmap='Reds', vmin=0, vmax=1)
             ax_current.set_title(f'current deforestation {current_date}')
             ax_current.axis('off')
+            
+            # 绘制古老砍伐图
             ax_ancient = axes[4, idx]
             ax_ancient.imshow(ancient_deforestation_map, cmap='Blues', vmin=0, vmax=1)
             ax_ancient.set_title(f'ancient deforestation {current_date}')
             ax_ancient.axis('off')
+        
+        # 调整布局并保存可视化结果
         plt.tight_layout()
-        vis_save_path = os.path.join(self.args.results_path, 'anomaly_detection_over_time_with_classification.png')
+        vis_save_path = os.path.join(self.args.results_path, 'anomaly_detection_analysed_by_time_sequence.png')
         plt.savefig(vis_save_path, bbox_inches='tight')
         plt.close()
         print(f"带有异常分类的结果已保存到 {vis_save_path}")
 
 #####################################################################################################################################################
 
-    def reconstruct_and_analyze_images_by_clustering(self, target_date, base_filename_part="622_975_S1A__IW___D_", suffix="_VV_gamma0-rtc_db_256_512_fused.tif"):
+    def reconstruct_and_analyze_images_by_clustering(self, target_date, base_filename_part="622_975_S1A__IW___D_", suffix="_VV_gamma0-rtc_db_0_0_fused.tif"):
         
         # 定义图像目录
         image_dir = "/home/yifan/Documents/data/forest/test/processed"
@@ -282,7 +410,7 @@ class AnomalyDetection:
         num_images = len(selected_image_paths)
         
         # 准备绘图，4 行 num_images 列（原始图像、热力图、语义异常图、差异图）
-        fig, axes = plt.subplots(4, num_images, figsize=(num_images * 4, 16))
+        fig, axes = plt.subplots(4, num_images, figsize=(num_images * 4, 25))
         
         min_val = None
         max_val = None
@@ -493,7 +621,7 @@ class AnomalyDetection:
                 ax_diff.axis('off')
             
             plt.tight_layout()
-            vis_save_path = os.path.join(self.args.results_path, 'anomaly_detection_over_time_with_differences.png')
+            vis_save_path = os.path.join(self.args.results_path, 'anomaly_detection_by_clustering.png')
             plt.savefig(vis_save_path, bbox_inches='tight')
             plt.close()
             print(f"带有差异图的随时间变化的异常检测结果已保存到 {vis_save_path}")
