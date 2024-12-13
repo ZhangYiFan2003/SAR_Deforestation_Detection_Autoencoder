@@ -1,18 +1,18 @@
 import argparse, os, sys
 import torch
 import optuna
-from models.vae import VAE
-from models.ae import AE
-from datasets.datasets import ProcessedForestDataLoader  
-from loss_distribution.loss_distribution_analyse import LossDistributionAnalysis
-from hyperparameter_optimize.optuna_objective import objective
+from models.variational_autoencoder import VAE
+from models.autoencoder import AE
+from datasets.data_loader import ProcessedForestDataLoader  
+from anomaly_detection.anomaly_detection_pipeline import LossDistributionAnalysis
+from hyperparameter_optimize.optuna_optimization import objective
 
 # Command-line arguments for training and testing options
 parser = argparse.ArgumentParser(
     description='Main function to call training for different AutoEncoders')
 parser.add_argument('--use-optuna', action='store_true', default=False,
                     help='Enable Optuna for hyperparameter optimization')
-parser.add_argument('--train', action='store_true', default=False,
+parser.add_argument('--train', action='store_true', default=True,
                     help='Choose whether to train the model')
 parser.add_argument('--test', action='store_true', default=True,
                     help='Choose whether to test the model with the latest saved weights')
@@ -22,7 +22,7 @@ parser.add_argument('--test', action='store_true', default=True,
 # Training hyperparameters
 parser.add_argument('--batch-size', type=int, default=8, metavar='N',
                     help='input batch size for training (default: 128)')
-parser.add_argument('--epochs', type=int, default=15, metavar='N',
+parser.add_argument('--epochs', type=int, default=10, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='enables CUDA training')

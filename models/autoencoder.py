@@ -7,8 +7,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 sys.path.append('../')
 from models.architectures import Encoder, Decoder
-from datasets.datasets import ProcessedForestDataLoader
-from loss_distribution.loss_distribution_analyse import LossDistributionAnalysis
+from datasets.data_loader import ProcessedForestDataLoader
+from anomaly_detection.anomaly_detection_pipeline import LossDistributionAnalysis
 from early_stop.early_stopping import EarlyStopping
 
 #####################################################################################################################################################
@@ -77,7 +77,7 @@ class AE(object):
         """
         recon_x = recon_x.view(-1, 2 * 256 * 256)
         x = x.view(-1, 2 * 256 * 256)
-        MSE = F.mse_loss(recon_x, x, reduction='sum')
+        MSE = F.mse_loss(recon_x, x, reduction='mean')
         return MSE
 
 #####################################################################################################################################################
