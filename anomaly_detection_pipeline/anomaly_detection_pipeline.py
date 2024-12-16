@@ -1,7 +1,7 @@
-from anomaly_detection.base_pipeline import BasePipeline
-from anomaly_detection.pixel_loss_analysis import PixelLossAnalysis
-from anomaly_detection.visualization import Visualization
-from anomaly_detection.anomaly_detection import AnomalyDetection
+from anomaly_detection_pipeline.base_pipeline import BasePipeline
+from anomaly_detection_pipeline.pixel_loss_analysis import PixelLossAnalysis
+from anomaly_detection_pipeline.visualization import Visualization
+from anomaly_detection_pipeline.anomaly_detection import AnomalyDetection
 
 #####################################################################################################################################################
 

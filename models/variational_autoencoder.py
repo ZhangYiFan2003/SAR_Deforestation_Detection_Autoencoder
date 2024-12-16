@@ -8,8 +8,7 @@ from torch.utils.tensorboard import SummaryWriter
 sys.path.append('../')
 from models.architectures import Encoder, Decoder
 from datasets.data_loader import ProcessedForestDataLoader
-from anomaly_detection.main_pipeline import AnomalyDetectionPipeline
-from early_stop.early_stopping import EarlyStopping
+from utils.early_stop.early_stopping import EarlyStopping
 
 #####################################################################################################################################################
 

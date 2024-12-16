@@ -142,7 +142,7 @@ arch = [
         size=(12, 12, compute_width(256)),
         opacity=0.5
     ),
-    to_skip(of='ccr_b5', to='ccr_res_b6', pos=1.25),
+    to_skip(of='ccr_b4', to='ccr_res_b6', pos=1.25),
 
     # Upsampling Block 2
     *block_Unconv(
@@ -155,7 +155,7 @@ arch = [
         size=(16, 16, compute_width(256)),
         opacity=0.5
     ),
-    to_skip(of='ccr_b4', to='ccr_res_b7', pos=1.25),
+    to_skip(of='ccr_b3', to='ccr_res_b7', pos=1.25),
 
     # Self-Attention in Decoder
     to_Conv(
