@@ -1,10 +1,27 @@
-from anomaly_detection_pipeline.base_pipeline import BasePipeline
+from torch.utils.tensorboard import SummaryWriter
 from anomaly_detection_pipeline.pixel_loss_analysis import PixelLossAnalysis
 from anomaly_detection_pipeline.visualization import Visualization
 from anomaly_detection_pipeline.anomaly_detection import AnomalyDetection
 
 #####################################################################################################################################################
 
-class AnomalyDetectionPipeline(BasePipeline, PixelLossAnalysis, Visualization, AnomalyDetection):
+class AnomalyDetectionPipeline(PixelLossAnalysis, Visualization, AnomalyDetection):
     def __init__(self, model, train_loader, validation_loader, test_loader, device, args):
-        super().__init__(model, train_loader, validation_loader, test_loader, device, args)
+        """
+        Initializes the LossDistributionAnalysis class for analyzing the pixel-level loss distributions.
+        
+        Args:
+        - model: The trained model (Autoencoder or Variational Autoencoder).
+        - train_loader: DataLoader for the training set.
+        - validation_loader: DataLoader for the validation set.
+        - test_loader: DataLoader for the test set.
+        - device: The device to run the analysis (CPU or GPU).
+        - args: Additional arguments including hyperparameters and result paths.
+        """
+        self.model = model
+        self.train_loader = train_loader
+        self.validation_loader = validation_loader
+        self.test_loader = test_loader
+        self.device = device
+        self.args = args
+        self.writer = SummaryWriter(log_dir=args.results_path + '/logs')

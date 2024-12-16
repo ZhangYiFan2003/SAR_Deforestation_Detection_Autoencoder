@@ -399,7 +399,7 @@ class AnomalyDetection:
             print(f"选择的图像数量少于11张：{len(selected_image_paths)} 张。")
             return
         
-        print(f"已选择日期 {target_date} 及其前后5天的11张图像进行分析，按照时间顺序排序。")
+        print(f"已选择日期 {target_date} 及其前后5天的11张图像")
         
         # 定义图像转换，与 ProcessedForestDataset 中的转换保持一致
         transform = transforms.Compose([
@@ -621,7 +621,7 @@ class AnomalyDetection:
                 ax_diff.axis('off')
             
             plt.tight_layout()
-            vis_save_path = os.path.join(self.args.results_path, 'anomaly_detection_by_clustering.png')
+            vis_save_path = os.path.join(self.args.results_path, 'anomaly_detection_analysed_by_clustering.png')
             plt.savefig(vis_save_path, bbox_inches='tight')
             plt.close()
-            print(f"带有差异图的随时间变化的异常检测结果已保存到 {vis_save_path}")
+            print(f"带有异常分类的结果已保存到 {vis_save_path}")

@@ -8,7 +8,7 @@ def parse_arguments():
         description='Main function to call training for different AutoEncoders')
     parser.add_argument('--use-optuna', action='store_true', default=False,
                         help='Enable Optuna for hyperparameter optimization')
-    parser.add_argument('--train', action='store_true', default=True,
+    parser.add_argument('--train', action='store_true', default=False,
                         help='Choose whether to train the model')
     parser.add_argument('--test', action='store_true', default=True,
                         help='Choose whether to test the model with the latest saved weights')

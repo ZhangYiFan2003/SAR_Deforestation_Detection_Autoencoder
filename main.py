@@ -2,7 +2,7 @@ import os, sys
 import torch
 from config.parse_args import parse_arguments
 from train_pipeline.train_pipeline import train_model
-from train_pipeline.test_pipeline import test_model
+from test_pipeline.test_pipeline import test_model
 from models.autoencoder import AE
 from models.variational_autoencoder import VAE
 from datasets.data_loader import ProcessedForestDataLoader  
@@ -13,6 +13,7 @@ from anomaly_detection_pipeline.anomaly_detection_pipeline import AnomalyDetecti
 def main():
     args = parse_arguments()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
+    torch.manual_seed(args.seed)
     
     try:
         os.stat(args.results_path)
