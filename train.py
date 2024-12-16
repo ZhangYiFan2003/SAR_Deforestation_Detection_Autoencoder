@@ -1,8 +1,8 @@
 import os, sys
 import torch
 from config.parse_args import parse_arguments
-from train_utils.train_pipeline import train_model
-from train_utils.test_pipeline import test_model
+from train_pipeline.train_pipeline import train_model
+from train_pipeline.test_pipeline import test_model
 from models.autoencoder import AE
 from models.variational_autoencoder import VAE
 from datasets.data_loader import ProcessedForestDataLoader  

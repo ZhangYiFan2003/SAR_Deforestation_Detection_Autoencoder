@@ -8,7 +8,7 @@ def parse_arguments():
         description='Main function to call training for different AutoEncoders')
     parser.add_argument('--use-optuna', action='store_true', default=False,
                         help='Enable Optuna for hyperparameter optimization')
-    parser.add_argument('--train', action='store_true', default=False,
+    parser.add_argument('--train', action='store_true', default=True,
                         help='Choose whether to train the model')
     parser.add_argument('--test', action='store_true', default=True,
                         help='Choose whether to test the model with the latest saved weights')
@@ -38,9 +38,9 @@ def parse_arguments():
                         help='Minimum change to qualify as improvement for early stopping')
     
     # Optimizer hyperparameters
-    parser.add_argument('--lr', type=float, default=1e-4, #0.00011674956207899162
+    parser.add_argument('--lr', type=float, default=1e-4, 
                         help='Learning rate for the optimizer')
-    parser.add_argument('--weight_decay', type=float, default=6e-06, #3.7146436941044483e-06
+    parser.add_argument('--weight_decay', type=float, default=6e-06,
                         help='Weight decay for the optimizer')
     parser.add_argument('--step_size', type=int, default=5, 
                         help='Step size for learning rate scheduler StepLR')
