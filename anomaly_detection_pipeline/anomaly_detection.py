@@ -1,17 +1,17 @@
-import os
+import os, re, glob
 import numpy as np
-import random
-import matplotlib.pyplot as plt
 import torch
+import random
+import tifffile as tiff
+import matplotlib.pyplot as plt
+import torchvision.transforms as transforms
 from torch.nn import MSELoss
 from sklearn.cluster import KMeans
 from sklearn.mixture import GaussianMixture
 from scipy.ndimage import label
-import tifffile as tiff
-import glob
-import re
 from datetime import datetime
-import torchvision.transforms as transforms
+import geopandas as gpd
+from shapely.geometry import Polygon
 
 #####################################################################################################################################################
 
@@ -625,3 +625,209 @@ class AnomalyDetection:
             plt.savefig(vis_save_path, bbox_inches='tight')
             plt.close()
             print(f"带有异常分类的结果已保存到 {vis_save_path}")
+
+#####################################################################################################################################################
+
+    def find_previous_date_image(self, target_date, image_paths):
+        """
+        查找目标日期之前的最近一张图像。
+
+        参数：
+        - target_date: 目标日期，字符串格式 'YYYYMMDD'
+        - image_paths: 所有图像的路径列表
+
+        返回：
+        - prev_image_path: 前一张图像的路径，如果不存在则返回 None
+        """
+        target_datetime = datetime.strptime(target_date, "%Y%m%d")
+        dates = []
+        for path in image_paths:
+            match = re.search(r'D_(\d{8})T', path)
+            if match:
+                date = datetime.strptime(match.group(1), "%Y%m%d")
+                dates.append((date, path))
+        # 排序
+        dates.sort()
+        prev_image_path = None
+        for date, path in dates:
+            if date < target_datetime:
+                prev_image_path = path
+            elif date == target_datetime:
+                continue
+            else:
+                break
+        return prev_image_path
+
+    def reconstruct_and_get_anomaly_map(self, image_path):
+        """
+        对单张图像进行重建和异常检测，返回二分类异常图。
+
+        参数：
+        - image_path: 图像文件的路径
+
+        返回：
+        - anomaly_map: 二分类异常图 (0 或 1)，形状为 (256, 256)
+        """
+        try:
+            # 加载图像
+            combined_image = tiff.imread(image_path)
+            
+            # 处理图像维度，确保为 (C, H, W) 并且有2个通道
+            if combined_image.ndim == 2:
+                combined_image = combined_image[np.newaxis, ...]
+            elif combined_image.ndim == 3:
+                if combined_image.shape[0] == 2:
+                    pass
+                elif combined_image.shape[-1] == 2:
+                    combined_image = np.transpose(combined_image, (2, 0, 1))
+                else:
+                    raise ValueError(f"期望的通道数为2，但在文件 {image_path} 中找到了 {combined_image.shape[-1]} 个通道。")
+            else:
+                raise ValueError(f"图像维度不正确：{combined_image.ndim}，文件路径：{image_path}")
+            
+            if combined_image.shape[0] != 2:
+                raise ValueError(f"期望的通道数为2，但在文件 {image_path} 中找到了 {combined_image.shape[0]} 个通道。")
+            
+            # 转换为 Tensor 并移动到设备
+            img_tensor = torch.from_numpy(combined_image).float().unsqueeze(0).to(self.device)
+            
+            # 模型推理
+            self.model.eval()
+            with torch.no_grad():
+                recon = self.model(img_tensor)
+                if isinstance(recon, tuple):
+                    recon = recon[0]
+            
+            # 计算像素级 MSE 损失
+            mse_loss = torch.nn.MSELoss(reduction='none')
+            pixel_loss = mse_loss(recon, img_tensor)
+            pixel_loss_sum = pixel_loss.sum(dim=1).squeeze(0).cpu().numpy()
+            
+            return pixel_loss_sum  # 返回像素级损失，用于全局聚类
+        
+        except Exception as e:
+            print(f"处理图像 {image_path} 时出错：{e}")
+            return None
+
+    def process_two_images_tile(self, target_date, suffix, base_filename_part="622_975_S1A__IW___D_"):
+        """
+        处理同一位置的两张不同日期的图像，进行全局聚类，生成差异异常图。
+
+        参数：
+        - target_date: 目标日期，字符串格式 'YYYYMMDD'
+        - suffix: 文件名后缀，包含 {row} 和 {col} 占位符
+        - base_filename_part: 文件名前缀
+
+        返回：
+        - difference_map: 两张异常图的差异图，形状为 (256, 256)
+        """
+        image_dir = "/home/yifan/Documents/data/forest/test/processed"
+        pattern = os.path.join(image_dir, f"{base_filename_part}*{suffix}")
+        image_paths = glob.glob(pattern)
+        
+        if len(image_paths) < 2:
+            print(f"在后缀 {suffix} 下，未找到足够的图像文件。")
+            return None
+        
+        # 查找目标日期和前一日期的图像
+        target_image_path = None
+        prev_image_path = self.find_previous_date_image(target_date, image_paths)
+        
+        # 构建目标日期的文件名
+        # 假设只有一个图像对应目标日期
+        for path in image_paths:
+            if f"D_{target_date}" in path:
+                target_image_path = path
+                break
+        
+        if target_image_path is None:
+            print(f"未找到目标日期 {target_date} 的图像，后缀：{suffix}。")
+            return None
+        if prev_image_path is None:
+            print(f"未找到目标日期 {target_date} 之前的图像，后缀：{suffix}。")
+            return None
+        
+        # 生成像素级损失图
+        pixel_loss_target = self.reconstruct_and_get_anomaly_map(target_image_path)
+        pixel_loss_prev = self.reconstruct_and_get_anomaly_map(prev_image_path)
+        
+        if pixel_loss_target is None or pixel_loss_prev is None:
+            print(f"生成像素级损失图时出错，后缀：{suffix}。")
+            return None
+        
+        # 合并两个图像的像素级损失，用于全局聚类
+        combined_losses = np.concatenate([pixel_loss_target.flatten(), pixel_loss_prev.flatten()]).reshape(-1, 1)
+        
+        # 使用全局GMM进行聚类
+        gmm = GaussianMixture(n_components=2, random_state=0)
+        gmm.fit(combined_losses)
+        
+        # 确定异常类别（均值较大的组件）
+        component_means = gmm.means_.flatten()
+        anomaly_cluster = np.argmax(component_means)
+        
+        # 对目标图像进行预测
+        predicted_labels_target = gmm.predict(pixel_loss_target.flatten().reshape(-1, 1))
+        anomaly_labels_target = predicted_labels_target.reshape(pixel_loss_target.shape)
+        binary_anomaly_map_target = (anomaly_labels_target == anomaly_cluster).astype(np.uint8)
+        
+        # 对前一图像进行预测
+        predicted_labels_prev = gmm.predict(pixel_loss_prev.flatten().reshape(-1, 1))
+        anomaly_labels_prev = predicted_labels_prev.reshape(pixel_loss_prev.shape)
+        binary_anomaly_map_prev = (anomaly_labels_prev == anomaly_cluster).astype(np.uint8)
+        
+        # 计算差异图（当前异常 - 前一异常）
+        difference_map = binary_anomaly_map_target - binary_anomaly_map_prev
+        # 只保留变化的部分
+        difference_map = np.where(difference_map != 0, 1, 0).astype(np.uint8)
+        
+        return difference_map
+
+    def generate_large_anomaly_map(self, target_date, base_filename_part="622_975_S1A__IW___D_", suffix_template="_VV_gamma0-rtc_db_{row}_{col}_fused.tif", 
+                                max_row=512, max_col=2048, tile_size=256):
+        """
+        遍历所有图像块，计算每个块的差异图，并组合成一个大尺寸的差异图。
+
+        参数：
+        - target_date: 目标日期，字符串格式 'YYYYMMDD'
+        - base_filename_part: 文件名前缀
+        - suffix_template: 后缀模板，包含 {row} 和 {col} 占位符
+        - max_row, max_col: 大图像的总尺寸（高度、宽度）
+        - tile_size: 分块大小
+
+        返回：
+        - large_difference_map: 拼接好的大尺寸差异图 (0 或 1)，形状为 (max_row, max_col)
+        """
+        # 初始化大图尺寸的差异图容器，值为0
+        large_difference_map = np.zeros((max_row, max_col), dtype=np.uint8)
+        
+        # 计算行与列的分块次数
+        row_tiles = (max_row + tile_size - 1) // tile_size  # 向上取整
+        col_tiles = (max_col + tile_size - 1) // tile_size
+        
+        for i in range(row_tiles):
+            for j in range(col_tiles):
+                start_row = i * tile_size
+                start_col = j * tile_size
+                
+                # 构建子块的后缀文件名，例如 "_VV_gamma0-rtc_db_0_0_fused.tif"
+                suffix = suffix_template.format(row=start_row, col=start_col)
+                
+                # 计算差异图
+                difference_map = self.process_two_images_tile(target_date, suffix, base_filename_part)
+                
+                if difference_map is not None:
+                    end_row = min(start_row + tile_size, max_row)
+                    end_col = min(start_col + tile_size, max_col)
+                    # 填充到大图中
+                    large_difference_map[start_row:end_row, start_col:end_col] = difference_map[:end_row - start_row, :end_col - start_col]
+                    print(f"已处理块 ({i}, {j})")
+                else:
+                    print(f"块 ({i}, {j}) 的差异图生成失败。")
+        
+        # 保存大尺寸差异图为 PNG
+        save_path = os.path.join(self.args.results_path, f'anomaly_difference_{target_date}.png')
+        tiff.imsave(save_path, large_difference_map * 255)  # 将 0 和 1 转换为 0 和 255 以便可视化
+        print(f"大尺寸差异图已保存到 {save_path}")
+        
+        return large_difference_map
