@@ -66,7 +66,7 @@ class AE(object):
             sys.exit()
 
 #####################################################################################################################################################
-    """
+    
     def loss_function(self, recon_x, x):
         
         #Calculates the Mean Squared Error (MSE) loss between the reconstructed and original input.
@@ -75,7 +75,7 @@ class AE(object):
         x = x.view(-1, 2 * 256 * 256)
         MSE = F.mse_loss(recon_x, x, reduction='sum')
         return MSE
-    """
+    
     
     """
     def loss_function(self, recon_x, x):
@@ -85,7 +85,7 @@ class AE(object):
         L1 = F.l1_loss(recon_x, x, reduction='sum')
         return L1
     """
-    
+    """
     def loss_function(self, recon_x, x, alpha=0.5):
         recon_x = recon_x.view(-1, 2 * 256 * 256)
         x = x.view(-1, 2 * 256 * 256)
@@ -95,6 +95,7 @@ class AE(object):
         # alpha 调整相对比重，0~1 之间可选
         loss = alpha * mse + (1 - alpha) * l1
         return loss
+    """
 
 #####################################################################################################################################################
 

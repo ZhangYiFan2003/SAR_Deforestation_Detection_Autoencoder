@@ -63,8 +63,8 @@ class ProcessedForestDataset(Dataset):
             raise ValueError(f"Expected 2 channels, but got {combined_image.shape[0]}")
         
         # Normalize the image using global min and max values
-        #if self.min_val is not None and self.max_val is not None:
-            #combined_image = (combined_image - self.min_val) / (self.max_val - self.min_val)
+        if self.min_val is not None and self.max_val is not None:
+            combined_image = (combined_image - self.min_val) / (self.max_val - self.min_val)
         
         # Convert the image to a PyTorch tensor
         combined_image = torch.from_numpy(combined_image).float()
