@@ -1,6 +1,6 @@
 from torch.utils.tensorboard import SummaryWriter
-from anomaly_detection_pipeline.visualization import Visualization
-from anomaly_detection_pipeline.anomaly_detection import AnomalyDetection
+from pipeline.anomaly_detection_pipeline.visualization import Visualization
+from pipeline.anomaly_detection_pipeline.anomaly_detection import AnomalyDetection
 
 #####################################################################################################################################################
 

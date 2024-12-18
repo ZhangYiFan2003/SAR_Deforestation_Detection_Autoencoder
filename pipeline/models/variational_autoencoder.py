@@ -6,9 +6,9 @@ from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
 
 sys.path.append('../')
-from models.architectures import Encoder, Decoder
-from datasets.data_loader import ProcessedForestDataLoader
-from utils.early_stop.early_stopping import EarlyStopping
+from pipeline.models.architectures import Encoder, Decoder
+from pipeline.datasets.data_loader import ProcessedForestDataLoader
+from pipeline.utils.early_stop.early_stopping import EarlyStopping
 
 #####################################################################################################################################################
 

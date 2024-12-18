@@ -6,9 +6,9 @@ from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
 
 sys.path.append('../')
-from models.architectures import Encoder, Decoder
-from datasets.data_loader import ProcessedForestDataLoader
-from utils.early_stop.early_stopping import EarlyStopping
+from pipeline.models.architectures import Encoder, Decoder
+from pipeline.datasets.data_loader import ProcessedForestDataLoader
+from pipeline.utils.early_stop.early_stopping import EarlyStopping
 
 #####################################################################################################################################################
 
@@ -66,15 +66,35 @@ class AE(object):
             sys.exit()
 
 #####################################################################################################################################################
-
+    """
     def loss_function(self, recon_x, x):
-        """
-        Calculates the Mean Squared Error (MSE) loss between the reconstructed and original input.
-        """
+        
+        #Calculates the Mean Squared Error (MSE) loss between the reconstructed and original input.
+        
         recon_x = recon_x.view(-1, 2 * 256 * 256)
         x = x.view(-1, 2 * 256 * 256)
         MSE = F.mse_loss(recon_x, x, reduction='sum')
         return MSE
+    """
+    
+    """
+    def loss_function(self, recon_x, x):
+        recon_x = recon_x.view(-1, 2 * 256 * 256)
+        x = x.view(-1, 2 * 256 * 256)
+        # L1 loss (sum or mean)
+        L1 = F.l1_loss(recon_x, x, reduction='sum')
+        return L1
+    """
+    
+    def loss_function(self, recon_x, x, alpha=0.5):
+        recon_x = recon_x.view(-1, 2 * 256 * 256)
+        x = x.view(-1, 2 * 256 * 256)
+        mse = F.mse_loss(recon_x, x, reduction='mean')
+        l1  = F.l1_loss(recon_x, x, reduction='mean')
+        
+        # alpha 调整相对比重，0~1 之间可选
+        loss = alpha * mse + (1 - alpha) * l1
+        return loss
 
 #####################################################################################################################################################
 

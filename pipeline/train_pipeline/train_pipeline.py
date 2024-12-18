@@ -1,7 +1,7 @@
 import os
 import torch
 import optuna
-from utils.hyperparameter_optimize.optuna_optimization import objective
+from pipeline.utils.hyperparameter_optimize.optuna_optimization import objective
 
 #####################################################################################################################################################
 
