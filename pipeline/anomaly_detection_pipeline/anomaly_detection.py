@@ -1,4 +1,5 @@
 import os, re, glob
+import math
 import torch
 import random
 import rasterio
@@ -14,6 +15,7 @@ from skimage.transform import rescale
 from skimage.morphology import disk, opening, closing
 from datetime import datetime
 from rasterio import features
+from rasterio.transform import from_origin
 from torch.nn import MSELoss
 from sklearn.cluster import KMeans
 from sklearn.mixture import GaussianMixture
@@ -632,23 +634,72 @@ class AnomalyDetection:
         save_prev_path = os.path.join(self.args.results_path, f'anomaly_map_prev_{prev_date.strftime("%Y%m%d")}.tif')
         save_diff_path = os.path.join(self.args.results_path, f'anomaly_difference_{target_date}.tif')
         
-        tiff.imwrite(save_target_path, (large_map_target * 255).astype(np.uint8))
-        tiff.imwrite(save_prev_path, (large_map_prev * 255).astype(np.uint8))
-        tiff.imwrite(save_diff_path, (difference_map * 255).astype(np.uint8))
+        desired_crs = "EPSG:4326"
+        pixel_size_m = 10  # 每像素对应的米数
+        origin_x = -70.6641 
+        origin_y = -8.4072
+        
+        # 计算中心纬度
+        central_lat = -8.4072  # 根据实际情况调整
+        
+        # 计算每度对应的米数
+        meters_per_degree_lat = 111320
+        meters_per_degree_lon = 111320 * math.cos(math.radians(central_lat))
+        
+        # 计算像素大小（度）
+        pixel_size_y = pixel_size_m / meters_per_degree_lat
+        pixel_size_x = pixel_size_m / meters_per_degree_lon
+        
+        print(f"Pixel Size X (degrees): {pixel_size_x}")
+        print(f"Pixel Size Y (degrees): {pixel_size_y}")
+        
+        
+        # 定义 CRS 和 Transform
+        crs = rasterio.crs.CRS.from_string(desired_crs)
+        transform = from_origin(origin_x, origin_y, pixel_size_x, pixel_size_y)  # 左上角坐标和像素大小
+        
+        # 使用 rasterio 写出 GeoTIFF，包含 CRS 和 Transform 信息
+        with rasterio.open(
+            save_target_path, 'w',
+            driver='GTiff',
+            height=large_map_target.shape[0],
+            width=large_map_target.shape[1],
+            count=1,
+            dtype=large_map_target.dtype,
+            crs=crs,
+            transform=transform
+        ) as dst:
+            dst.write(large_map_target, 1)
+        
+        with rasterio.open(
+            save_prev_path, 'w',
+            driver='GTiff',
+            height=large_map_prev.shape[0],
+            width=large_map_prev.shape[1],
+            count=1,
+            dtype=large_map_prev.dtype,
+            crs=crs,
+            transform=transform
+        ) as dst:
+            dst.write(large_map_prev, 1)
+        
+        with rasterio.open(
+            save_diff_path, 'w',
+            driver='GTiff',
+            height=difference_map.shape[0],
+            width=difference_map.shape[1],
+            count=1,
+            dtype=difference_map.dtype,
+            crs=crs,
+            transform=transform
+        ) as dst:
+            dst.write(difference_map, 1)
         
         print(f"已保存目标日期大图: {save_target_path}")
         print(f"已保存前一日期大图: {save_prev_path}")
         print(f"已保存变化检测图: {save_diff_path}")
         
-        # 从目标日期的一张影像获取地理信息（假设都是同样的CRS和transform）
-        # 这里选取target_images_all中的任意一张影像作为参考（例如第一张）
-        ref_image = target_images_all[0]
-        with rasterio.open(ref_image) as src:
-            transform = src.transform
-            crs = src.crs
-            
-        # 使用rasterio.features.shapes对difference_map矢量化
-        # 只选择值为1的区域
+        # 使用 rasterio.features.shapes 对 difference_map 矢量化
         shapes_gen = rasterio.features.shapes(difference_map, transform=transform)
         polygons = []
         for geom, value in shapes_gen:
