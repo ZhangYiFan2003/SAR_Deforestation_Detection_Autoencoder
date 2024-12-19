@@ -1,17 +1,22 @@
 import os, re, glob
-import numpy as np
 import torch
 import random
+import rasterio
+import numpy as np
 import tifffile as tiff
+import geopandas as gpd
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
+
+from scipy.ndimage import label
+from shapely.geometry import shape
+from skimage.transform import rescale
+from skimage.morphology import disk, opening, closing
+from datetime import datetime
+from rasterio import features
 from torch.nn import MSELoss
 from sklearn.cluster import KMeans
 from sklearn.mixture import GaussianMixture
-from skimage.morphology import label, disk, opening, closing
-from skimage.transform import rescale
-from scipy.ndimage import label
-from datetime import datetime
 
 #####################################################################################################################################################
 
@@ -105,67 +110,17 @@ class AnomalyDetection:
                 
         # 引入形态学操作
         # 选择合适的结构元素（如3x3的圆盘结构元素）
-        selem = disk(3)  # 可以根据需要调整大小，如disk(5)
+        #selem = disk(3)  # 可以根据需要调整大小，如disk(5)
         
         # Step 2: 开运算 (Opening)
         # Opening = Erosion + Dilation，用于去除小噪点与分离细小的突出部分
-        opened_map = opening(filtered_map, selem)
+        #filtered_map = opening(filtered_map, selem)
         
         # Step 3: 闭运算 (Closing)
         # Closing = Dilation + Erosion，用于填补区域内的小孔洞，使区域更连贯
-        closed_map = closing(opened_map, selem)
+        #filtered_map = closing(filtered_map, selem)
         
-        return closed_map
-
-    def _filter_small_components(self, binary_map, min_size=50):
-        """
-        过滤掉连通域中小于指定像素数量的组件，并引入多尺度金字塔分析以提升过滤效果。
-        
-        Args:
-            binary_map (numpy.ndarray): 输入的二值图。
-            min_size (int, optional): 连通组件的最小像素数量。默认值为50。
-        
-        Returns:
-            numpy.ndarray: 过滤后的二值图。
-        """
-        # 定义多尺度因子
-        scales = [1, 0.5, 0.25]  # 原始尺度、1/2尺度、1/4尺度
-        filtered_maps = []
-        
-        for scale in scales:
-            if scale == 1:
-                scaled_map = binary_map.copy()
-                adjusted_min_size = min_size
-            else:
-                # 进行降采样
-                scaled_map = rescale(binary_map, scale=scale, order=0, anti_aliasing=False)
-                scaled_map = (scaled_map > 0.5).astype(np.uint8)
-                # 调整min_size
-                adjusted_min_size = int(min_size / (scale ** 2))
-            
-            # 过滤小组件
-            labeled_map, num_features = label(scaled_map)
-            filtered_map = np.zeros_like(scaled_map)
-            for i in range(1, num_features + 1):
-                component = (labeled_map == i)
-                if component.sum() >= adjusted_min_size:
-                    filtered_map[component] = 1
-            
-            if scale != 1:
-                # 上采样回原始尺寸
-                upscaled_map = rescale(filtered_map, scale=1/scale, order=0, anti_aliasing=False)
-                upscaled_map = (upscaled_map > 0.5).astype(np.uint8)
-            else:
-                upscaled_map = filtered_map
-            
-            filtered_maps.append(upscaled_map)
-        
-        # 融合所有尺度的过滤结果
-        final_filtered_map = np.zeros_like(binary_map)
-        for fmap in filtered_maps:
-            final_filtered_map = np.logical_or(final_filtered_map, fmap).astype(np.uint8)
-        
-        return final_filtered_map
+        return filtered_map
 
     def _fit_global_gmm(self, all_pixel_errors):
         gmm = GaussianMixture(n_components=2, random_state=0)
@@ -430,20 +385,20 @@ class AnomalyDetection:
         if len(image_paths) == 0:
             print("未找到匹配的图像文件。请检查文件路径和命名格式。")
             return
-
+        
         selected_image_paths = self._select_images_by_date(image_paths, target_date, backward=5, forward=5)
         if not selected_image_paths or len(selected_image_paths) < 11:
             print("选择的图像数量少于11张。")
             return
-
+        
         print(f"已选择日期 {target_date} 及其前后5天的11张图像")
-
+        
         transform = transforms.Compose([])
         num_images = len(selected_image_paths)
-
+        
         mse_min = 0
         mse_max = 1050
-
+        
         print("开始计算选择的11张图像的像素级误差...")
         all_pixel_errors, pixel_loss_sums, image_dates, summed_images = self._compute_all_pixel_losses(
             selected_image_paths, transform, self.device
@@ -451,26 +406,26 @@ class AnomalyDetection:
         if len(pixel_loss_sums) < 11:
             print("有效图像不足，无法继续处理。")
             return
-
+        
         all_pixel_errors = np.array(all_pixel_errors).reshape(-1, 1)
         print("开始训练全局GMM...")
         gmm, anomaly_cluster, anomaly_mean = self._fit_global_gmm(all_pixel_errors)
         print(f"异常类别为GMM的组件 {anomaly_cluster}，均值为 {anomaly_mean:.4f}")
-
+        
         # 计算语义异常图和差异图
         semantic_anomaly_maps = []
         for idx in range(num_images):
             pixel_loss_sum = pixel_loss_sums[idx]
             filtered_anomaly_map, norm_pixel_loss = self._predict_anomaly_map(pixel_loss_sum, gmm, anomaly_cluster, mse_min, mse_max, min_size=50)
             semantic_anomaly_maps.append((filtered_anomaly_map, norm_pixel_loss))
-
+            
         difference_maps = []
         for i in range(1, len(semantic_anomaly_maps)):
             previous_map = semantic_anomaly_maps[i - 1][0]
             current_map = semantic_anomaly_maps[i][0]
             difference_map = np.logical_and(previous_map == 0, current_map == 1).astype(int)
             difference_maps.append(difference_map)
-
+            
         # 准备绘制最终结果：4 行(num_images 列)
         # 第1行：原始图像
         # 第2行：热力图
@@ -478,28 +433,28 @@ class AnomalyDetection:
         # 第4行：差异图（如果有）
         total_rows = 4 if difference_maps else 3
         fig, axes = plt.subplots(total_rows, num_images, figsize=(num_images * 4, 20 if difference_maps else 15))
-
+        
         for idx in range(num_images):
             current_date = image_dates[idx]
             summed_image = summed_images[idx]
             filtered_anomaly_map, norm_pixel_loss = semantic_anomaly_maps[idx]
-
+            
             # 原始图像
             axes[0, idx].imshow(summed_image, cmap='gray')
             axes[0, idx].set_title(f'original image {current_date}')
             axes[0, idx].axis('off')
-
+            
             # 热力图
             axes[1, idx].imshow(norm_pixel_loss, cmap='magma', vmin=0, vmax=1.0)
             axes[1, idx].set_title(f'heat map {current_date}')
             axes[1, idx].axis('off')
             plt.colorbar(axes[1, idx].images[0], ax=axes[1, idx], fraction=0.046, pad=0.04, label='MSE loss')
-
+            
             # 语义异常图
             axes[2, idx].imshow(filtered_anomaly_map, cmap='bone', vmin=0, vmax=1, alpha=0.8)
             axes[2, idx].set_title(f'semantic anomaly map {current_date}')
             axes[2, idx].axis('off')
-
+            
         # 如果有差异图，绘制差异图行
         if difference_maps:
             for idx, diff_map in enumerate(difference_maps):
@@ -507,11 +462,11 @@ class AnomalyDetection:
                 axes[3, idx].imshow(diff_map, cmap='bone', vmin=0, vmax=1)
                 axes[3, idx].set_title(f'change {current_date}')
                 axes[3, idx].axis('off')
-
+                
             # 如果最后一列没有差异图（因为差异图少一个），将其隐藏
             if num_images > len(difference_maps):
                 axes[3, -1].axis('off')
-
+                
         plt.tight_layout()
         vis_save_path = os.path.join(self.args.results_path, 'anomaly_detection_analysed_by_clustering.png')
         plt.savefig(vis_save_path, bbox_inches='tight')
@@ -532,14 +487,14 @@ class AnomalyDetection:
         if len(all_images) == 0:
             print("未找到任何匹配的图像文件。")
             return None
-
+        
         date_to_paths = {}
         for path in all_images:
             date_obj = self._extract_date_from_path(path)
             if date_obj not in date_to_paths:
                 date_to_paths[date_obj] = []
             date_to_paths[date_obj].append(path)
-
+            
         all_dates = sorted(date_to_paths.keys())
         prev_date = None
         for d in all_dates:
@@ -549,21 +504,21 @@ class AnomalyDetection:
                 continue
             else:
                 break
-
+            
         if prev_date is None:
             print(f"未能找到 {target_date} 的前一日期图像。")
             return None
-
+        
         target_images_all = date_to_paths.get(target_datetime, [])
         prev_images_all = date_to_paths.get(prev_date, [])
-
+        
         if len(target_images_all) == 0:
             print(f"未找到目标日期 {target_date} 的图像。")
             return None
         if len(prev_images_all) == 0:
             print(f"未找到前一日期 {prev_date.strftime('%Y%m%d')} 的图像。")
             return None
-
+        
         pattern_suffix = r'_VV_gamma0-rtc_db_(\d+)_(\d+)_fused\.tif$'
         def extract_row_col(path):
             m = re.search(pattern_suffix, path)
@@ -572,7 +527,7 @@ class AnomalyDetection:
                 col = int(m.group(2))
                 return row, col
             return None, None
-
+        
         target_map = {}
         prev_map = {}
         for p in target_images_all:
@@ -583,12 +538,12 @@ class AnomalyDetection:
             row, col = extract_row_col(p)
             if row is not None and col is not None:
                 prev_map[(row, col)] = p
-
+                
         common_tiles = set(target_map.keys()).intersection(set(prev_map.keys()))
         if len(common_tiles) == 0:
             print("未找到目标日期和前一日期共有的图像块。")
             return None
-
+        
         def load_and_compute_pixel_loss(image_path):
             try:
                 combined_image = tiff.imread(image_path)
@@ -603,10 +558,10 @@ class AnomalyDetection:
                         raise ValueError(f"期望2通道，但在 {image_path} 中找到 {combined_image.shape[-1]} 通道。")
                 else:
                     raise ValueError(f"图像维度不正确：{combined_image.ndim}, 文件: {image_path}")
-
+                
                 if combined_image.shape[0] != 2:
                     raise ValueError(f"期望2通道，但在 {image_path} 中找到 {combined_image.shape[0]} 通道。")
-
+                
                 img_tensor = torch.from_numpy(combined_image).float().unsqueeze(0).to(self.device)
                 self.model.eval()
                 with torch.no_grad():
@@ -620,10 +575,10 @@ class AnomalyDetection:
             except Exception as e:
                 print(f"处理图像 {image_path} 时出错：{e}")
                 return None
-
+            
         pixel_loss_target_dict = {}
         pixel_loss_prev_dict = {}
-
+        
         all_pixel_losses = []
         for (row, col) in common_tiles:
             pl_target = load_and_compute_pixel_loss(target_map[(row, col)])
@@ -635,29 +590,29 @@ class AnomalyDetection:
             pixel_loss_prev_dict[(row, col)] = pl_prev
             all_pixel_losses.append(pl_target.flatten())
             all_pixel_losses.append(pl_prev.flatten())
-
+            
         if len(all_pixel_losses) == 0:
             print("没有可用于聚类的图像块数据。")
             return None
-
+        
         all_pixel_losses = np.concatenate(all_pixel_losses, axis=0).reshape(-1, 1)
-
+        
         gmm = GaussianMixture(n_components=2, random_state=0)
         gmm.fit(all_pixel_losses)
         component_means = gmm.means_.flatten()
         anomaly_cluster = np.argmax(component_means)
-
+        
         large_map_target = np.zeros((max_row, max_col), dtype=np.uint8)
         large_map_prev = np.zeros((max_row, max_col), dtype=np.uint8)
-
+        
         for (row, col), pl_target in pixel_loss_target_dict.items():
             pl_prev = pixel_loss_prev_dict[(row, col)]
             pred_target = gmm.predict(pl_target.flatten().reshape(-1, 1))
             anomaly_target = (pred_target.reshape(pl_target.shape) == anomaly_cluster).astype(np.uint8)
-
+            
             pred_prev = gmm.predict(pl_prev.flatten().reshape(-1, 1))
             anomaly_prev = (pred_prev.reshape(pl_prev.shape) == anomaly_cluster).astype(np.uint8)
-
+            
             end_row = min(row + tile_size, max_row)
             end_col = min(col + tile_size, max_col)
             large_map_target[row:end_row, col:end_col] = anomaly_target[:end_row - row, :end_col - col]
@@ -670,18 +625,42 @@ class AnomalyDetection:
         difference_map = large_map_target.astype(int) - large_map_prev.astype(int)
         difference_map = np.where(difference_map != 0, 1, 0).astype(np.uint8)
         difference_map = self._filter_small_components(difference_map, min_size=min_size)
-
+        difference_map = self._filter_small_components(difference_map, min_size=min_size)
+        
         os.makedirs(self.args.results_path, exist_ok=True)
         save_target_path = os.path.join(self.args.results_path, f'anomaly_map_target_{target_date}.tif')
         save_prev_path = os.path.join(self.args.results_path, f'anomaly_map_prev_{prev_date.strftime("%Y%m%d")}.tif')
         save_diff_path = os.path.join(self.args.results_path, f'anomaly_difference_{target_date}.tif')
-
+        
         tiff.imwrite(save_target_path, (large_map_target * 255).astype(np.uint8))
         tiff.imwrite(save_prev_path, (large_map_prev * 255).astype(np.uint8))
         tiff.imwrite(save_diff_path, (difference_map * 255).astype(np.uint8))
-
+        
         print(f"已保存目标日期大图: {save_target_path}")
         print(f"已保存前一日期大图: {save_prev_path}")
         print(f"已保存变化检测图: {save_diff_path}")
-
+        
+        # 从目标日期的一张影像获取地理信息（假设都是同样的CRS和transform）
+        # 这里选取target_images_all中的任意一张影像作为参考（例如第一张）
+        ref_image = target_images_all[0]
+        with rasterio.open(ref_image) as src:
+            transform = src.transform
+            crs = src.crs
+            
+        # 使用rasterio.features.shapes对difference_map矢量化
+        # 只选择值为1的区域
+        shapes_gen = rasterio.features.shapes(difference_map, transform=transform)
+        polygons = []
+        for geom, value in shapes_gen:
+            if value == 1:
+                polygons.append(shape(geom))
+                
+        if len(polygons) > 0:
+            gdf = gpd.GeoDataFrame(geometry=polygons, crs=crs)
+            shp_path = os.path.join(self.args.results_path, f'anomaly_difference_{target_date}.shp')
+            gdf.to_file(shp_path, driver='ESRI Shapefile', encoding='utf-8')
+            print(f"已保存差异区域Shapefile: {shp_path}")
+        else:
+            print("差异图中未找到异常区域对应的多边形。")
+            
         return difference_map

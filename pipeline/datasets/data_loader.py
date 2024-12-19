@@ -123,14 +123,14 @@ class ProcessedForestDataLoader(object):
 def compute_percentile_min_max(root_dir, lower_percentile=1, upper_percentile=99, batch_size=100, device='cuda'):
     """
     Efficiently compute global percentile minimum and maximum values for normalization using GPU.
-
+    
     Args:
         root_dir (string): Root directory containing preprocessed 2-channel TIFF images.
         lower_percentile (float): Lower percentile (e.g., 1).
         upper_percentile (float): Upper percentile (e.g., 99).
         batch_size (int): Number of images to process in each batch.
         device (string): Device to use ('cuda' or 'cpu').
-
+        
     Returns:
         tuple: Estimated global percentile minimum and maximum values across all images in the directory.
     """

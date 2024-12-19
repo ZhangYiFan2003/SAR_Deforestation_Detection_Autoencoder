@@ -19,4 +19,4 @@ def test_model(args, autoenc, data_loader, anomaly_detection):
     
     anomaly_detection.reconstruct_and_analyze_images_by_time_sequence(target_date="20220721")
     anomaly_detection.reconstruct_and_analyze_images_by_clustering(target_date="20220721")
-    anomaly_detection.generate_large_change_map(target_date="20220907")
+    anomaly_detection.generate_large_change_map(target_date="20220919")

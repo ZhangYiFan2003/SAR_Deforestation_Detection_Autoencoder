@@ -35,13 +35,13 @@ class Visualization:
         if len(image_paths) == 0:
             print("未找到测试数据集中的TIFF图像文件。")
             return
-
+        
         transform = None  
         from torch.nn import MSELoss
         loss_fn = MSELoss(reduction='none')
         all_pixel_errors = []
         print("开始计算所有测试图像的像素级误差...")
-
+        
         for idx, img_path in enumerate(image_paths):
             try:
                 combined_image = tiff.imread(img_path)
@@ -66,13 +66,13 @@ class Visualization:
             except Exception as e:
                 print(f"处理图像 {img_path} 时出错：{e}")
                 continue
-
+            
         all_pixel_errors = np.array(all_pixel_errors)
         min_mse = all_pixel_errors.min()
         max_mse = all_pixel_errors.max()
         print(f"MSE minimum: {min_mse}")
         print(f"MSE maximum: {max_mse}")
-
+        
         plt.figure(figsize=(10, 6))
         plt.hist(all_pixel_errors, bins=num_bins, color='skyblue', edgecolor='black')
         plt.title('Histogramme erreur pixel')
@@ -104,14 +104,14 @@ class Visualization:
             loss_fn = torch.nn.MSELoss(reduction='none')
             pixel_loss = loss_fn(recon_data, data).sum(dim=1).squeeze(0).cpu().numpy()
             return image_index, pixel_loss
-
+        
         self.model.eval()
         with torch.no_grad():
             val_index, val_pixel_loss = _get_image_and_loss(self.validation_loader.dataset, val_image_index)
             print(f"Selected validation image index: {val_index}")
             test_index, test_pixel_loss = _get_image_and_loss(self.test_loader.dataset, test_image_index)
             print(f"Selected test image index: {test_index}")
-
+            
             import matplotlib.pyplot as plt
             plt.figure(figsize=(10, 6))
             plt.hist(val_pixel_loss.flatten(), bins=100, alpha=0.7, label=f'Validation Image {val_index}', color='blue', density=True)

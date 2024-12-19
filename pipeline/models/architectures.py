@@ -15,7 +15,7 @@ class ResidualBlock(nn.Module):
         self.bn2 = nn.BatchNorm2d(out_channels)
         self.downsample = downsample
         #self.dropout = nn.Dropout(p=0.1)
-
+    
     def forward(self, x):
         # Save input as identity for skip connection
         identity = x
@@ -143,7 +143,7 @@ class Encoder(nn.Module):
                 nn.BatchNorm2d(out_channels)
             )
         return ResidualBlock(in_channels, out_channels, stride, downsample)
-
+    
     def forward(self, x):
         """
         Forward pass through the encoder.
