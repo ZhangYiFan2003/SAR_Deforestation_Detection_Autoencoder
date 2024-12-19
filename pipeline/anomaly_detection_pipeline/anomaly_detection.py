@@ -19,6 +19,7 @@ from rasterio.transform import from_origin
 from torch.nn import MSELoss
 from sklearn.cluster import KMeans
 from sklearn.mixture import GaussianMixture
+from pyproj import Transformer
 
 #####################################################################################################################################################
 
@@ -629,89 +630,102 @@ class AnomalyDetection:
         difference_map = self._filter_small_components(difference_map, min_size=min_size)
         difference_map = self._filter_small_components(difference_map, min_size=min_size)
         
+        # 左右翻转函数
+        def flip_horizontally(data):
+            flipped_data = np.fliplr(data)
+            return flipped_data
+        
+        # 对三个图像进行左右翻转
+        large_map_target = flip_horizontally(large_map_target)
+        large_map_prev = flip_horizontally(large_map_prev)
+        difference_map = flip_horizontally(difference_map)
+        
         os.makedirs(self.args.results_path, exist_ok=True)
         save_target_path = os.path.join(self.args.results_path, f'anomaly_map_target_{target_date}.tif')
         save_prev_path = os.path.join(self.args.results_path, f'anomaly_map_prev_{prev_date.strftime("%Y%m%d")}.tif')
         save_diff_path = os.path.join(self.args.results_path, f'anomaly_difference_{target_date}.tif')
         
-        desired_crs = "EPSG:4326"
+        # 已知参数
+        desired_crs = "EPSG:3857"  # 目标 CRS 为 Web Mercator
         pixel_size_m = 10  # 每像素对应的米数
-        origin_x = -70.6641 
-        origin_y = -8.4072
-        
+        origin_x_deg = -70.6641  # 原始经度
+        origin_y_deg = -8.4072    # 原始纬度
+
+        # 需要移动的距离（米）
+        delta_north = 1000  # 向北移动 100 米
+        delta_east = 1000   # 向东移动 200 米
+
         # 计算中心纬度
-        central_lat = -8.4072  # 根据实际情况调整
-        
+        central_lat = origin_y_deg
+
         # 计算每度对应的米数
         meters_per_degree_lat = 111320
         meters_per_degree_lon = 111320 * math.cos(math.radians(central_lat))
-        
-        # 计算像素大小（度）
-        pixel_size_y = pixel_size_m / meters_per_degree_lat
-        pixel_size_x = pixel_size_m / meters_per_degree_lon
-        
-        print(f"Pixel Size X (degrees): {pixel_size_x}")
-        print(f"Pixel Size Y (degrees): {pixel_size_y}")
-        
-        
+
+        # 将米转换为度
+        delta_lat_deg = delta_north / meters_per_degree_lat
+        delta_lon_deg = delta_east / meters_per_degree_lon
+
+        # 修改原点坐标
+        new_origin_y_deg = origin_y_deg + delta_lat_deg  # 向北增加纬度
+        new_origin_x_deg = origin_x_deg + delta_lon_deg  # 向东增加经度
+
+        print(f"新的原点坐标 (度): ({new_origin_x_deg}, {new_origin_y_deg})")
+
+        # 将新的原点从 EPSG:4326 转换到 EPSG:3857
+        transformer = Transformer.from_crs("EPSG:4326", desired_crs, always_xy=True)
+        origin_x, origin_y = transformer.transform(new_origin_x_deg, new_origin_y_deg)
+
+        print(f"转换后的原点坐标 (EPSG:3857): ({origin_x}, {origin_y})")
+
+        # 在 EPSG:3857 中，像素大小以米为单位
+        pixel_size_x = pixel_size_m
+        pixel_size_y = pixel_size_m
+
+        print(f"像素大小 X (米): {pixel_size_x}")
+        print(f"像素大小 Y (米): {pixel_size_y}")
+
         # 定义 CRS 和 Transform
         crs = rasterio.crs.CRS.from_string(desired_crs)
         transform = from_origin(origin_x, origin_y, pixel_size_x, pixel_size_y)  # 左上角坐标和像素大小
-        
-        # 使用 rasterio 写出 GeoTIFF，包含 CRS 和 Transform 信息
-        with rasterio.open(
-            save_target_path, 'w',
-            driver='GTiff',
-            height=large_map_target.shape[0],
-            width=large_map_target.shape[1],
-            count=1,
-            dtype=large_map_target.dtype,
-            crs=crs,
-            transform=transform
-        ) as dst:
-            dst.write(large_map_target, 1)
-        
-        with rasterio.open(
-            save_prev_path, 'w',
-            driver='GTiff',
-            height=large_map_prev.shape[0],
-            width=large_map_prev.shape[1],
-            count=1,
-            dtype=large_map_prev.dtype,
-            crs=crs,
-            transform=transform
-        ) as dst:
-            dst.write(large_map_prev, 1)
-        
-        with rasterio.open(
-            save_diff_path, 'w',
-            driver='GTiff',
-            height=difference_map.shape[0],
-            width=difference_map.shape[1],
-            count=1,
-            dtype=difference_map.dtype,
-            crs=crs,
-            transform=transform
-        ) as dst:
-            dst.write(difference_map, 1)
-        
+
+        # 定义保存 GeoTIFF 的函数
+        def save_geotiff(save_path, data):
+            with rasterio.open(
+                save_path, 'w',
+                driver='GTiff',
+                height=data.shape[0],
+                width=data.shape[1],
+                count=1,
+                dtype=data.dtype,
+                crs=crs,
+                transform=transform
+            ) as dst:
+                dst.write(data, 1)
+            print(f"已保存文件: {save_path}")
+
+        # 保存目标、前一日期和变化检测图
+        save_geotiff(save_target_path, large_map_target)
+        save_geotiff(save_prev_path, large_map_prev)
+        save_geotiff(save_diff_path, difference_map)
+
         print(f"已保存目标日期大图: {save_target_path}")
         print(f"已保存前一日期大图: {save_prev_path}")
         print(f"已保存变化检测图: {save_diff_path}")
-        
-        # 使用 rasterio.features.shapes 对 difference_map 矢量化
+
+        # 矢量化差异图
         shapes_gen = rasterio.features.shapes(difference_map, transform=transform)
         polygons = []
         for geom, value in shapes_gen:
             if value == 1:
                 polygons.append(shape(geom))
-                
+
         if len(polygons) > 0:
             gdf = gpd.GeoDataFrame(geometry=polygons, crs=crs)
             shp_path = os.path.join(self.args.results_path, f'anomaly_difference_{target_date}.shp')
             gdf.to_file(shp_path, driver='ESRI Shapefile', encoding='utf-8')
-            print(f"已保存差异区域Shapefile: {shp_path}")
+            print(f"已保存差异区域 Shapefile: {shp_path}")
         else:
             print("差异图中未找到异常区域对应的多边形。")
-            
+
         return difference_map
