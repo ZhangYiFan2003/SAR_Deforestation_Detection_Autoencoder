@@ -711,8 +711,9 @@ class AnomalyDetection:
 
         # 定义 CRS 和 Transform
         crs = rasterio.crs.CRS.from_string(desired_crs)
+        #transform = from_origin(origin_x, origin_y, pixel_size_x, pixel_size_y)  # 左上角坐标和像素大小
         transform = rotated_transform  # 使用旋转后的仿射变换
-
+        
         # 定义保存 GeoTIFF 的函数
         def save_geotiff(save_path, data):
             with rasterio.open(
@@ -756,3 +757,42 @@ class AnomalyDetection:
             print("差异图中未找到异常区域对应的多边形。")
 
         return difference_map
+        """
+        os.makedirs(self.args.results_path, exist_ok=True)
+        save_target_path = os.path.join(self.args.results_path, f'anomaly_map_target_{target_date}.tif')
+        save_prev_path = os.path.join(self.args.results_path, f'anomaly_map_prev_{prev_date.strftime("%Y%m%d")}.tif')
+        save_diff_path = os.path.join(self.args.results_path, f'anomaly_difference_{target_date}.tif')
+        
+        tiff.imwrite(save_target_path, (large_map_target * 255).astype(np.uint8))
+        tiff.imwrite(save_prev_path, (large_map_prev * 255).astype(np.uint8))
+        tiff.imwrite(save_diff_path, (difference_map * 255).astype(np.uint8))
+        
+        print(f"已保存目标日期大图: {save_target_path}")
+        print(f"已保存前一日期大图: {save_prev_path}")
+        print(f"已保存变化检测图: {save_diff_path}")
+        
+        # 从目标日期的一张影像获取地理信息（假设都是同样的CRS和transform）
+        # 这里选取target_images_all中的任意一张影像作为参考（例如第一张）
+        ref_image = target_images_all[0]
+        with rasterio.open(ref_image) as src:
+            transform = src.transform
+            crs = src.crs
+            
+        # 使用rasterio.features.shapes对difference_map矢量化
+        # 只选择值为1的区域
+        shapes_gen = rasterio.features.shapes(difference_map, transform=transform)
+        polygons = []
+        for geom, value in shapes_gen:
+            if value == 1:
+                polygons.append(shape(geom))
+                
+        if len(polygons) > 0:
+            gdf = gpd.GeoDataFrame(geometry=polygons, crs=crs)
+            shp_path = os.path.join(self.args.results_path, f'anomaly_difference_{target_date}.shp')
+            gdf.to_file(shp_path, driver='ESRI Shapefile', encoding='utf-8')
+            print(f"已保存差异区域Shapefile: {shp_path}")
+        else:
+            print("差异图中未找到异常区域对应的多边形。")
+            
+        return difference_map
+        """
