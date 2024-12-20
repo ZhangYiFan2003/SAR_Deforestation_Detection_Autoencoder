@@ -20,6 +20,7 @@ from torch.nn import MSELoss
 from sklearn.cluster import KMeans
 from sklearn.mixture import GaussianMixture
 from pyproj import Transformer
+from affine import Affine
 
 #####################################################################################################################################################
 
@@ -652,8 +653,10 @@ class AnomalyDetection:
         origin_y_deg = -8.4072    # 原始纬度
 
         # 需要移动的距离（米）
-        delta_north = 1000  # 向北移动 100 米
-        delta_east = 1000   # 向东移动 200 米
+        delta_north = 3900  # 向北移动 1000 米
+        delta_east = 1000    # 向东移动 500 米
+        # 定义旋转角度（以度为单位）
+        rotate_angle_deg = 12  # 负值表示顺时针旋转10度
 
         # 计算中心纬度
         central_lat = origin_y_deg
@@ -680,14 +683,35 @@ class AnomalyDetection:
 
         # 在 EPSG:3857 中，像素大小以米为单位
         pixel_size_x = pixel_size_m
-        pixel_size_y = pixel_size_m
+        pixel_size_y = -pixel_size_m  # 设置为负值以防止图像上下颠倒
 
         print(f"像素大小 X (米): {pixel_size_x}")
         print(f"像素大小 Y (米): {pixel_size_y}")
 
+        theta = math.radians(rotate_angle_deg)  # 转换为弧度
+
+        cos_theta = math.cos(theta)
+        sin_theta = math.sin(theta)
+
+        # 计算旋转后的仿射变换
+        # 仿射变换矩阵形式：
+        # | a  b  c |
+        # | d  e  f |
+        # | 0  0  1 |
+        a = pixel_size_x * cos_theta
+        b = -pixel_size_x * sin_theta
+        d = pixel_size_y * sin_theta
+        e = pixel_size_y * cos_theta
+        c = origin_x
+        f = origin_y
+
+        rotated_transform = Affine(a, b, c, d, e, f)
+
+        print(f"旋转后的仿射变换: {rotated_transform}")
+
         # 定义 CRS 和 Transform
         crs = rasterio.crs.CRS.from_string(desired_crs)
-        transform = from_origin(origin_x, origin_y, pixel_size_x, pixel_size_y)  # 左上角坐标和像素大小
+        transform = rotated_transform  # 使用旋转后的仿射变换
 
         # 定义保存 GeoTIFF 的函数
         def save_geotiff(save_path, data):
@@ -703,6 +727,9 @@ class AnomalyDetection:
             ) as dst:
                 dst.write(data, 1)
             print(f"已保存文件: {save_path}")
+
+        # 假设 large_map_target, large_map_prev, difference_map 已定义
+        # 请确保这些变量在实际代码中已正确定义和加载
 
         # 保存目标、前一日期和变化检测图
         save_geotiff(save_target_path, large_map_target)
