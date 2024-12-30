@@ -484,7 +484,7 @@ class AnomalyDetection:
     def generate_large_change_map(self, target_date, base_filename_part="622_975_S1A__IW___D_", 
                                   suffix_template="_VV_gamma0-rtc_db_{row}_{col}_fused.tif", 
                                   image_dir="/home/yifan/Documents/data/forest/test/processed",
-                                  max_row=768, max_col=2304, tile_size=256, min_size=50):
+                                  max_row=1792, max_col=1792, tile_size=256, min_size=100):
         
         target_datetime = datetime.strptime(target_date, "%Y%m%d")
         all_images = glob.glob(os.path.join(image_dir, f"{base_filename_part}*"))
@@ -629,17 +629,6 @@ class AnomalyDetection:
         difference_map = large_map_target.astype(int) - large_map_prev.astype(int)
         difference_map = np.where(difference_map != 0, 1, 0).astype(np.uint8)
         difference_map = self._filter_small_components(difference_map, min_size=min_size)
-        difference_map = self._filter_small_components(difference_map, min_size=min_size)
-        
-        # 左右翻转函数
-        def flip_horizontally(data):
-            flipped_data = np.fliplr(data)
-            return flipped_data
-        
-        # 对三个图像进行左右翻转
-        large_map_target = flip_horizontally(large_map_target)
-        large_map_prev = flip_horizontally(large_map_prev)
-        difference_map = flip_horizontally(difference_map)
         
         os.makedirs(self.args.results_path, exist_ok=True)
         save_target_path = os.path.join(self.args.results_path, f'anomaly_map_target_{target_date}.tif')
@@ -647,72 +636,18 @@ class AnomalyDetection:
         save_diff_path = os.path.join(self.args.results_path, f'anomaly_difference_{target_date}.tif')
         
         # 已知参数
-        desired_crs = "EPSG:3857"  # 目标 CRS 为 Web Mercator
+        desired_crs = "EPSG:4326"  # 保持使用地理坐标系
         pixel_size_m = 10  # 每像素对应的米数
-        origin_x_deg = -70.6641  # 原始经度
-        origin_y_deg = -8.4072    # 原始纬度
-
-        # 需要移动的距离（米）
-        delta_north = 3900  # 向北移动 1000 米
-        delta_east = 1000    # 向东移动 500 米
-        # 定义旋转角度（以度为单位）
-        rotate_angle_deg = 12  # 负值表示顺时针旋转10度
-
-        # 计算中心纬度
-        central_lat = origin_y_deg
-
-        # 计算每度对应的米数
-        meters_per_degree_lat = 111320
-        meters_per_degree_lon = 111320 * math.cos(math.radians(central_lat))
-
-        # 将米转换为度
-        delta_lat_deg = delta_north / meters_per_degree_lat
-        delta_lon_deg = delta_east / meters_per_degree_lon
-
-        # 修改原点坐标
-        new_origin_y_deg = origin_y_deg + delta_lat_deg  # 向北增加纬度
-        new_origin_x_deg = origin_x_deg + delta_lon_deg  # 向东增加经度
-
-        print(f"新的原点坐标 (度): ({new_origin_x_deg}, {new_origin_y_deg})")
-
-        # 将新的原点从 EPSG:4326 转换到 EPSG:3857
-        transformer = Transformer.from_crs("EPSG:4326", desired_crs, always_xy=True)
-        origin_x, origin_y = transformer.transform(new_origin_x_deg, new_origin_y_deg)
-
-        print(f"转换后的原点坐标 (EPSG:3857): ({origin_x}, {origin_y})")
-
-        # 在 EPSG:3857 中，像素大小以米为单位
-        pixel_size_x = pixel_size_m
-        pixel_size_y = -pixel_size_m  # 设置为负值以防止图像上下颠倒
-
-        print(f"像素大小 X (米): {pixel_size_x}")
-        print(f"像素大小 Y (米): {pixel_size_y}")
-
-        theta = math.radians(rotate_angle_deg)  # 转换为弧度
-
-        cos_theta = math.cos(theta)
-        sin_theta = math.sin(theta)
-
-        # 计算旋转后的仿射变换
-        # 仿射变换矩阵形式：
-        # | a  b  c |
-        # | d  e  f |
-        # | 0  0  1 |
-        a = pixel_size_x * cos_theta
-        b = -pixel_size_x * sin_theta
-        d = pixel_size_y * sin_theta
-        e = pixel_size_y * cos_theta
-        c = origin_x
-        f = origin_y
-
-        rotated_transform = Affine(a, b, c, d, e, f)
-
-        print(f"旋转后的仿射变换: {rotated_transform}")
-
+        origin_x_deg = -70.664040447  # 原始经度
+        origin_y_deg = -8.407197997    # 原始纬度
+        
+        # 计算每像素对应的度数
+        pixel_size_y = pixel_size_m / 111320  # 纬度方向，每像素大小（度）
+        pixel_size_x = pixel_size_m / (111320 * np.cos(np.deg2rad(origin_y_deg)))  # 经度方向，每像素大小（度）
+        
         # 定义 CRS 和 Transform
         crs = rasterio.crs.CRS.from_string(desired_crs)
-        #transform = from_origin(origin_x, origin_y, pixel_size_x, pixel_size_y)  # 左上角坐标和像素大小
-        transform = rotated_transform  # 使用旋转后的仿射变换
+        transform_affine = from_origin(origin_x_deg, origin_y_deg, pixel_size_x, pixel_size_y)  # 左上角坐标和像素大小
         
         # 定义保存 GeoTIFF 的函数
         def save_geotiff(save_path, data):
@@ -724,30 +659,27 @@ class AnomalyDetection:
                 count=1,
                 dtype=data.dtype,
                 crs=crs,
-                transform=transform
+                transform=transform_affine
             ) as dst:
                 dst.write(data, 1)
             print(f"已保存文件: {save_path}")
-
-        # 假设 large_map_target, large_map_prev, difference_map 已定义
-        # 请确保这些变量在实际代码中已正确定义和加载
-
+            
         # 保存目标、前一日期和变化检测图
         save_geotiff(save_target_path, large_map_target)
         save_geotiff(save_prev_path, large_map_prev)
         save_geotiff(save_diff_path, difference_map)
-
+        
         print(f"已保存目标日期大图: {save_target_path}")
         print(f"已保存前一日期大图: {save_prev_path}")
         print(f"已保存变化检测图: {save_diff_path}")
-
+        
         # 矢量化差异图
-        shapes_gen = rasterio.features.shapes(difference_map, transform=transform)
+        shapes_gen = rasterio.features.shapes(difference_map, transform=transform_affine)
         polygons = []
         for geom, value in shapes_gen:
             if value == 1:
                 polygons.append(shape(geom))
-
+                
         if len(polygons) > 0:
             gdf = gpd.GeoDataFrame(geometry=polygons, crs=crs)
             shp_path = os.path.join(self.args.results_path, f'anomaly_difference_{target_date}.shp')
@@ -755,7 +687,7 @@ class AnomalyDetection:
             print(f"已保存差异区域 Shapefile: {shp_path}")
         else:
             print("差异图中未找到异常区域对应的多边形。")
-
+            
         return difference_map
         """
         os.makedirs(self.args.results_path, exist_ok=True)
