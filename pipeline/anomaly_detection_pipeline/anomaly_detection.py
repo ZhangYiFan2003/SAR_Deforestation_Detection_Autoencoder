@@ -638,12 +638,25 @@ class AnomalyDetection:
         # 已知参数
         desired_crs = "EPSG:4326"  # 保持使用地理坐标系
         pixel_size_m = 10  # 每像素对应的米数
+        
         origin_x_deg = -70.664040447  # 原始经度
         origin_y_deg = -8.407197997    # 原始纬度
+        
+        # 需要移动的距离（米）
+        delta_north = 0  
+        delta_east = 0   
         
         # 计算每像素对应的度数
         pixel_size_y = pixel_size_m / 111320  # 纬度方向，每像素大小（度）
         pixel_size_x = pixel_size_m / (111320 * np.cos(np.deg2rad(origin_y_deg)))  # 经度方向，每像素大小（度）
+        
+        # 将米转换为度
+        delta_lat_deg = delta_north / 111320
+        delta_lon_deg = delta_east / (111320 * np.cos(np.deg2rad(origin_y_deg)))
+        
+        # 修改原点坐标
+        origin_y_deg = origin_y_deg + delta_lat_deg  # 向北增加纬度
+        origin_x_deg = origin_x_deg + delta_lon_deg  # 向东增加经度
         
         # 定义 CRS 和 Transform
         crs = rasterio.crs.CRS.from_string(desired_crs)
@@ -689,42 +702,3 @@ class AnomalyDetection:
             print("差异图中未找到异常区域对应的多边形。")
             
         return difference_map
-        """
-        os.makedirs(self.args.results_path, exist_ok=True)
-        save_target_path = os.path.join(self.args.results_path, f'anomaly_map_target_{target_date}.tif')
-        save_prev_path = os.path.join(self.args.results_path, f'anomaly_map_prev_{prev_date.strftime("%Y%m%d")}.tif')
-        save_diff_path = os.path.join(self.args.results_path, f'anomaly_difference_{target_date}.tif')
-        
-        tiff.imwrite(save_target_path, (large_map_target * 255).astype(np.uint8))
-        tiff.imwrite(save_prev_path, (large_map_prev * 255).astype(np.uint8))
-        tiff.imwrite(save_diff_path, (difference_map * 255).astype(np.uint8))
-        
-        print(f"已保存目标日期大图: {save_target_path}")
-        print(f"已保存前一日期大图: {save_prev_path}")
-        print(f"已保存变化检测图: {save_diff_path}")
-        
-        # 从目标日期的一张影像获取地理信息（假设都是同样的CRS和transform）
-        # 这里选取target_images_all中的任意一张影像作为参考（例如第一张）
-        ref_image = target_images_all[0]
-        with rasterio.open(ref_image) as src:
-            transform = src.transform
-            crs = src.crs
-            
-        # 使用rasterio.features.shapes对difference_map矢量化
-        # 只选择值为1的区域
-        shapes_gen = rasterio.features.shapes(difference_map, transform=transform)
-        polygons = []
-        for geom, value in shapes_gen:
-            if value == 1:
-                polygons.append(shape(geom))
-                
-        if len(polygons) > 0:
-            gdf = gpd.GeoDataFrame(geometry=polygons, crs=crs)
-            shp_path = os.path.join(self.args.results_path, f'anomaly_difference_{target_date}.shp')
-            gdf.to_file(shp_path, driver='ESRI Shapefile', encoding='utf-8')
-            print(f"已保存差异区域Shapefile: {shp_path}")
-        else:
-            print("差异图中未找到异常区域对应的多边形。")
-            
-        return difference_map
-        """

@@ -250,7 +250,7 @@ class Decoder(nn.Module):
 #####################################################################################################################################################
 
 """
-# test code
+# Instantiate the encoder and decoder
 input_size = (2, 256, 256)
 embedding_size = 128
 batch_size = 4
@@ -258,53 +258,112 @@ batch_size = 4
 encoder = Encoder(embedding_size, input_size)
 decoder = Decoder(embedding_size, input_size)
 
-x = torch.randn(batch_size, *input_size)
+# ============================
+# Test code for the Encoder
+# ============================
+x_enc = torch.randn(batch_size, *input_size)
+print("==== Encoder Test ====")
+print(f"Encoder Input Shape: {x_enc.shape}")
 
-encoded, fpn_features = encoder(x)
+# 1. Pass through the initial convolution
+x_enc_init = encoder.initial(x_enc)
+print(f"After Initial Conv: {x_enc_init.shape}")
+
+# 2. encoder1
+x1 = encoder.encoder1(x_enc_init)
+print(f"After Encoder1: {x1.shape}")
+
+# 3. encoder2
+x2 = encoder.encoder2(x1)
+print(f"After Encoder2: {x2.shape}")
+
+# 4. encoder3
+x3 = encoder.encoder3(x2)
+print(f"After Encoder3: {x3.shape}")
+
+# 5. encoder4
+x4 = encoder.encoder4(x3)
+print(f"After Encoder4: {x4.shape}")
+
+# 6. encoder5
+x5 = encoder.encoder5(x4)
+print(f"After Encoder5: {x5.shape}")
+
+# 7. Self-Attention
+x5_att = encoder.attention(x5)
+print(f"After Attention: {x5_att.shape}")
+
+# 8. FPN lateral connections
+p5_ = encoder.lateral_conv1(x5_att)
+print(f"p5 after lateral_conv1: {p5_.shape}")
+
+p4_ = encoder.lateral_conv2(x4) + F.interpolate(p5_, size=x4.shape[2:], mode='nearest')
+print(f"p4 after lateral_conv2 + interpolate: {p4_.shape}")
+
+p3_ = encoder.lateral_conv3(x3) + F.interpolate(p4_, size=x3.shape[2:], mode='nearest')
+print(f"p3 after lateral_conv3 + interpolate: {p3_.shape}")
+
+p2_ = encoder.lateral_conv4(x2) + F.interpolate(p3_, size=x2.shape[2:], mode='nearest')
+print(f"p2 after lateral_conv4 + interpolate: {p2_.shape}")
+
+# 9. FPN output convolutions
+p5_ = encoder.fpn_conv1(p5_)
+p4_ = encoder.fpn_conv2(p4_)
+p3_ = encoder.fpn_conv3(p3_)
+p2_ = encoder.fpn_conv4(p2_)
+
+print(f"p5 after fpn_conv1: {p5_.shape}")
+print(f"p4 after fpn_conv2: {p4_.shape}")
+print(f"p3 after fpn_conv3: {p3_.shape}")
+print(f"p2 after fpn_conv4: {p2_.shape}")
+
+# 10. Global avgpool -> flatten -> fully connected
+p5_avg = encoder.avgpool(p5_)
+print(f"p5 after avgpool: {p5_avg.shape}")
+p5_avg = torch.flatten(p5_avg, 1)
+print(f"After Flatten: {p5_avg.shape}")
+out_enc = encoder.fc(p5_avg)
+print(f"Encoder Final Output (Embedding) Shape: {out_enc.shape}\n")
+
+# ============================
+# Test code for the Decoder
+# ============================
+# Demonstrates shape checks similar to your existing script
+decoded_input = torch.randn(batch_size, embedding_size)
+encoded, fpn_features = encoder(x_enc)
+print("==== Decoder Test ====")
 
 print("FPN Feature Shapes:")
 for i, feature in enumerate(fpn_features):
     print(f"p{i+2}: {feature.shape}")
 
-decoded_input = torch.randn(batch_size, embedding_size)  
-fpn_shapes_match = True
+x_dec = decoder.fc(decoded_input)
+x_dec = x_dec.view(-1, 256, 4, 4)
+print(f"\nDecoder Initial Shape: {x_dec.shape}")
 
-x = decoder.fc(decoded_input)  
-x = x.view(-1, 256, 4, 4)      
-print(f"Decoder Initial Shape: {x.shape}")
+x_dec = decoder.decoder1(x_dec)
+print(f"Decoder Stage 1 Shape: {x_dec.shape}, FPN Feature p4 Shape: {fpn_features[1].shape}")
+x_dec = x_dec + fpn_features[1]
 
-x = decoder.decoder1(x)        # -> [batch, 256, 8, 8]
-print(f"Decoder Stage 1 Shape: {x.shape}, FPN Feature p4 Shape: {fpn_features[1].shape}")
-if x.shape != fpn_features[1].shape:
-    print("Shape mismatch at Decoder Stage 1 with FPN Feature p4!")
-    fpn_shapes_match = False
-x = x + fpn_features[1]
+x_dec = decoder.decoder2(x_dec)
+print(f"Decoder Stage 2 Shape: {x_dec.shape}, FPN Feature p3 Shape: {fpn_features[2].shape}")
+x_dec = x_dec + fpn_features[2]
 
-x = decoder.decoder2(x)        # -> [batch, 256, 16, 16]
-print(f"Decoder Stage 2 Shape: {x.shape}, FPN Feature p3 Shape: {fpn_features[2].shape}")
-if x.shape != fpn_features[2].shape:
-    print("Shape mismatch at Decoder Stage 2 with FPN Feature p3!")
-    fpn_shapes_match = False
-x = x + fpn_features[2]
+x_dec = decoder.decoder3(x_dec)
+print(f"Decoder Stage 3 Shape: {x_dec.shape}, FPN Feature p2 Shape: {fpn_features[3].shape}")
 
-x = decoder.decoder3(x)        # -> [batch, 256, 32, 32]
-print(f"Decoder Stage 3 Shape: {x.shape}, FPN Feature p2 Shape: {fpn_features[3].shape}")
-if x.shape != fpn_features[3].shape:
-    print("Shape mismatch at Decoder Stage 3 with FPN Feature p2!")
-    fpn_shapes_match = False
+x_dec = decoder.attention_decoder(x_dec)
+print(f"Decoder After Attention Shape: {x_dec.shape}")
 
-x = decoder.decoder4(x)        # -> [batch, 128, 64, 64]
-print(f"Decoder Stage 4 Shape: {x.shape}")
-x = decoder.decoder5(x)        # -> [batch, 64, 128, 128]
-print(f"Decoder Stage 5 Shape: {x.shape}")
-x = decoder.decoder6(x)        # -> [batch, 32, 256, 256]
-print(f"Decoder Stage 6 Shape: {x.shape}")
+x_dec = decoder.decoder4(x_dec)
+print(f"Decoder Stage 4 Shape: {x_dec.shape}")
 
-x = decoder.final(x)           # -> [batch, 2, 256, 256]
-print(f"Final Decoded Output Shape: {x.shape}")
+x_dec = decoder.decoder5(x_dec)
+print(f"Decoder Stage 5 Shape: {x_dec.shape}")
 
-if fpn_shapes_match:
-    print("All FPN features match decoder input sizes correctly.")
-else:
-    print("Mismatch found between FPN features and decoder input sizes.")
+x_dec = decoder.decoder6(x_dec)
+print(f"Decoder Stage 6 Shape: {x_dec.shape}")
+
+x_dec = decoder.final(x_dec)
+print(f"Final Decoded Output Shape: {x_dec.shape}")
 """
