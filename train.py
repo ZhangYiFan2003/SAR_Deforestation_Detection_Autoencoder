@@ -1,12 +1,12 @@
 import os, sys
 import torch
 from config.parse_args import parse_arguments
-from pipeline.train_pipeline.train_pipeline import train_model
-from pipeline.test_pipeline.test_pipeline import test_model
+from pipeline.train.train_pipeline import train_model
+from pipeline.test.test_pipeline import test_model
 from pipeline.models.autoencoder import AE
 from pipeline.models.variational_autoencoder import VAE
 from pipeline.datasets.data_loader import ProcessedForestDataLoader  
-from pipeline.anomaly_detection_pipeline.anomaly_detection_pipeline import AnomalyDetectionPipeline
+from pipeline.anomaly_detection.anomaly_detection_pipeline import AnomalyDetectionPipeline
 
 #####################################################################################################################################################
 
