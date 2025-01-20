@@ -488,7 +488,8 @@ class AnomalyDetection:
         suffix_template="_VV_gamma0-rtc_db_{row}_{col}_fused.tif",
         image_dir="/home/yifan/Documents/data/forest/test/processed",
         tile_size=256,
-        min_size=100
+        min_size=100,
+        pixel_loss_threshold=1.0
     ):
         """
         将原先在内存中拼成大图后投影的做法，改为：
@@ -650,13 +651,18 @@ class AnomalyDetection:
             pred_prev = gmm.predict(pl_prev.flatten().reshape(-1, 1))
             anomaly_prev = (pred_prev.reshape(pl_prev.shape) == anomaly_cluster).astype(np.uint8)
             
+            # ========== (A) 强制 pixel_loss 小于阈值时不可判为“not forest” ========== 
+            # 如果该像素损失低于阈值，则认定它是“forest”(0)
+            anomaly_target[pl_target < pixel_loss_threshold] = 0
+            anomaly_prev[pl_prev < pixel_loss_threshold] = 0
+            
             # 可选：对 anomaly_target 和 anomaly_prev 做小连通域过滤
             anomaly_target = self._filter_small_components(anomaly_target, min_size=min_size)
             anomaly_prev = self._filter_small_components(anomaly_prev, min_size=min_size)
             
-            # 生成 difference
-            difference_tile = anomaly_target.astype(int) - anomaly_prev.astype(int)
-            difference_tile = np.where(difference_tile != 0, 1, 0).astype(np.uint8)
+            # ========== (B) 修正 difference_tile 的定义，仅标记“forest→not forest” ========== 
+            # forest=0, not forest=1，因此仅在 anomaly_prev=0 且 anomaly_target=1 时记为1
+            difference_tile = np.where((anomaly_prev == 0) & (anomaly_target == 1),1, 0).astype(np.uint8)
             difference_tile = self._filter_small_components(difference_tile, min_size=min_size)
             
             # ==== 在这里读取瓦片原始的 transform / crs，并写出地理对齐的结果 ====
