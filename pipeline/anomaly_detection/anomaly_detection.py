@@ -303,12 +303,12 @@ class AnomalyDetection:
             print("未找到匹配的图像文件。")
             return
         
-        selected_image_paths = self._select_images_by_date(image_paths, target_date, backward=5, forward=5)
-        if not selected_image_paths or len(selected_image_paths) < 11:
-            print(f"选择的图像数量少于11张。")
+        selected_image_paths = self._select_images_by_date(image_paths, target_date, backward=2, forward=2)
+        if not selected_image_paths or len(selected_image_paths) < 5:
+            print(f"选择的图像数量少于5张。")
             return
         
-        print(f"已选择日期 {target_date} 及其前后5天的11张图像。")
+        print(f"已选择日期 {target_date} 及其前后的2张图像。")
         
         transform = transforms.Compose([])
         num_images = len(selected_image_paths)
@@ -317,11 +317,11 @@ class AnomalyDetection:
         mse_min = 0
         mse_max = 1050
         
-        print("开始计算选择的11张图像的像素级误差...")
+        print("开始计算选择的5张图像的像素级误差...")
         all_pixel_errors, pixel_loss_sums, image_dates, summed_images = self._compute_all_pixel_losses(
             selected_image_paths, transform, self.device
         )
-        if len(pixel_loss_sums) < 11:
+        if len(pixel_loss_sums) < 5:
             print("有效图像不足，无法继续处理。")
             return
         
@@ -390,12 +390,12 @@ class AnomalyDetection:
             print("未找到匹配的图像文件。请检查文件路径和命名格式。")
             return
         
-        selected_image_paths = self._select_images_by_date(image_paths, target_date, backward=5, forward=5)
-        if not selected_image_paths or len(selected_image_paths) < 11:
+        selected_image_paths = self._select_images_by_date(image_paths, target_date, backward=2, forward=2)
+        if not selected_image_paths or len(selected_image_paths) < 5:
             print("选择的图像数量少于11张。")
             return
         
-        print(f"已选择日期 {target_date} 及其前后5天的11张图像")
+        print(f"已选择日期 {target_date} 及其前后的2张图像")
         
         transform = transforms.Compose([])
         num_images = len(selected_image_paths)
@@ -403,11 +403,11 @@ class AnomalyDetection:
         mse_min = 0
         mse_max = 1050
         
-        print("开始计算选择的11张图像的像素级误差...")
+        print("开始计算选择的5张图像的像素级误差...")
         all_pixel_errors, pixel_loss_sums, image_dates, summed_images = self._compute_all_pixel_losses(
             selected_image_paths, transform, self.device
         )
-        if len(pixel_loss_sums) < 11:
+        if len(pixel_loss_sums) < 5:
             print("有效图像不足，无法继续处理。")
             return
         
@@ -665,89 +665,32 @@ class AnomalyDetection:
             difference_tile = np.where((anomaly_prev == 0) & (anomaly_target == 1),1, 0).astype(np.uint8)
             difference_tile = self._filter_small_components(difference_tile, min_size=min_size)
             
-            # ==== 在这里读取瓦片原始的 transform / crs，并写出地理对齐的结果 ====
-            tile_target_path = os.path.join(self.args.results_path, 
-                f"anomaly_target_{target_date}_r{row}_c{col}.tif")
-            tile_prev_path = os.path.join(self.args.results_path, 
-                f"anomaly_prev_{prev_date.strftime('%Y%m%d')}_r{row}_c{col}.tif")
-            tile_diff_path = os.path.join(self.args.results_path, 
-                f"anomaly_diff_{target_date}_r{row}_c{col}.tif")
-            
-            # 以目标瓦片为例, 读取其 transform/crs 来写 anomaly_target
-            # 你也可以选择先读取 target_map 再读取 prev_map, 确保二者一致
+            # 从目标瓦片获取 transform / crs
             with rasterio.open(target_map[(row, col)]) as src_tile:
                 tile_crs = src_tile.crs
                 tile_transform = src_tile.transform
-                height = src_tile.height
-                width = src_tile.width
                 
-                # 写 anomaly_target
-                with rasterio.open(
-                    tile_target_path,
-                    'w',
-                    driver='GTiff',
-                    height=height,
-                    width=width,
-                    count=1,
-                    dtype=anomaly_target.dtype,
-                    crs=tile_crs,
-                    transform=tile_transform
-                ) as dst:
-                    dst.write(anomaly_target, 1)
-            
-            # 写 anomaly_prev
-            # 我们假设 prev_map 与 target_map 在 transform / crs 方面是一致的
-            # 否则需要再单独打开 prev_map[(row,col)] 取 transform。
-            with rasterio.open(prev_map[(row, col)]) as src_tile:
-                tile_crs = src_tile.crs
-                tile_transform = src_tile.transform
-                height = src_tile.height
-                width = src_tile.width
-                
-                with rasterio.open(
-                    tile_prev_path,
-                    'w',
-                    driver='GTiff',
-                    height=height,
-                    width=width,
-                    count=1,
-                    dtype=anomaly_prev.dtype,
-                    crs=tile_crs,
-                    transform=tile_transform
-                ) as dst:
-                    dst.write(anomaly_prev, 1)
-            
-            # 写 difference
-            # 这里也可以复用 target_map 的 transform, 不过为安全起见，也跟前面一样单独打开一次
-            # 只要确实确认target与prev地理信息是一致的，也可以只打开一次
-            with rasterio.open(target_map[(row, col)]) as src_tile:
-                tile_crs = src_tile.crs
-                tile_transform = src_tile.transform
-                height = src_tile.height
-                width = src_tile.width
-                
-                with rasterio.open(
-                    tile_diff_path,
-                    'w',
-                    driver='GTiff',
-                    height=height,
-                    width=width,
-                    count=1,
-                    dtype=difference_tile.dtype,
-                    crs=tile_crs,
-                    transform=tile_transform
-                ) as dst:
-                    dst.write(difference_tile, 1)
-            
-            print(f"已输出瓦片 row={row}, col={col} 的 anomaly_target、anomaly_prev、difference。")
-            
-            # ========== 6. 矢量化该瓦片的 difference ==========
-            # 如果想要把所有瓦片的多边形合并到一个 Shapefile，就把这里得到的 polygons 累加起来
+            # 矢量化并保存当前瓦片的差异地图
+            tile_polygons = []
             shapes_gen = rasterio_shapes(difference_tile, transform=tile_transform)
             for geom, val in shapes_gen:
                 if val == 1:
-                    polygons_all.append(shape(geom))
-        
+                    tile_polygons.append(shape(geom))
+                    
+            if len(tile_polygons) > 0:
+                tile_gdf = gpd.GeoDataFrame(geometry=tile_polygons, crs=tile_crs)
+                
+                # 在该瓦片专属子目录内写出小 Shapefile
+                subfolder = os.path.join(self.args.results_path, f"{row}_{col}")
+                os.makedirs(subfolder, exist_ok=True)
+                tile_shp_path = os.path.join(subfolder, f"difference_{row}_{col}.shp")
+                tile_gdf.to_file(tile_shp_path, driver='ESRI Shapefile', encoding='utf-8')
+                
+                # 同时累积到 polygons_all
+                polygons_all.extend(tile_polygons)
+                
+            print(f"完成瓦片 row={row}, col={col} 的差异矢量化。")
+            
         # ========== 7. 合并所有瓦片的多边形，保存为一个Shapefile ==========
         if len(polygons_all) > 0:
             # 以最后一个瓦片的 CRS 或者任意一个瓦片的 CRS 为准
