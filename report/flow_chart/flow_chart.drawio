@@ -1,16 +1,24 @@
 <mxfile host="app.diagrams.net" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36" version="26.0.6">
   <diagram id="C5RBs43oDa-KdzZeNtuy" name="Page-1">
-    <mxGraphModel dx="1045" dy="1168" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+    <mxGraphModel dx="849" dy="949" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
       <root>
         <mxCell id="WIyWlLk6GJQsqaUBKTNV-0" />
         <mxCell id="WIyWlLk6GJQsqaUBKTNV-1" parent="WIyWlLk6GJQsqaUBKTNV-0" />
-        <mxCell id="c4pWjjOEcurI2IpJ5nb5-8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="WIyWlLk6GJQsqaUBKTNV-3" target="MzqjUUQ03-ekEMJwUfET-19">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="c4pWjjOEcurI2IpJ5nb5-8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" source="WIyWlLk6GJQsqaUBKTNV-3" target="MzqjUUQ03-ekEMJwUfET-15" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="640" y="280" as="sourcePoint" />
+            <mxPoint x="410" y="980" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="640" y="280" />
+              <mxPoint x="880" y="280" />
+              <mxPoint x="880" y="980" />
+            </Array>
+          </mxGeometry>
         </mxCell>
         <mxCell id="WIyWlLk6GJQsqaUBKTNV-3" value="&lt;b&gt;6.1 Annotation manuelle des images optiques&lt;/b&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;étapes:&amp;nbsp;Apprentissage des bases SAR,&amp;nbsp;Sélection et téléchargement des images,&amp;nbsp;Annotation manuelle dans QGIS,&amp;nbsp;Partage des données&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;glass=0;strokeWidth=1;shadow=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" vertex="1">
-          <mxGeometry x="700" y="120" width="400" height="120" as="geometry" />
+          <mxGeometry x="440" y="120" width="400" height="120" as="geometry" />
         </mxCell>
-        <mxCell id="MzqjUUQ03-ekEMJwUfET-2" value="&lt;b&gt;6.2 Prétraitement du jeu de donnés des images SAR&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;glass=0;strokeWidth=1;shadow=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" vertex="1">
+        <mxCell id="MzqjUUQ03-ekEMJwUfET-2" value="&lt;b&gt;6.2 Prétraitement du jeu de donnés des images SAR&lt;/b&gt;&lt;div&gt;&lt;b&gt;&lt;br&gt;&lt;/b&gt;&lt;/div&gt;&lt;div&gt;étape:&amp;nbsp;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;Sélection et téléchargement des images,&amp;nbsp;&lt;/span&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;Prétraitement,&amp;nbsp;&lt;/span&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;Partitionnement, Réalisation de la classe Dataset et DatasetLoader&lt;/span&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;glass=0;strokeWidth=1;shadow=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" vertex="1">
           <mxGeometry y="120" width="400" height="120" as="geometry" />
         </mxCell>
         <mxCell id="MzqjUUQ03-ekEMJwUfET-3" value="" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" source="MzqjUUQ03-ekEMJwUfET-2" target="MzqjUUQ03-ekEMJwUfET-5" edge="1">
@@ -20,7 +28,7 @@
             <Array as="points" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="MzqjUUQ03-ekEMJwUfET-5" value="&lt;b&gt;6.3 Conception initiale de la structure de l&#39;Autoencoder&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;glass=0;strokeWidth=1;shadow=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" vertex="1">
+        <mxCell id="MzqjUUQ03-ekEMJwUfET-5" value="&lt;b&gt;6.3 Conception initiale de la structure de l&#39;Autoencoder&lt;/b&gt;&lt;div&gt;&lt;b&gt;&lt;br&gt;&lt;/b&gt;&lt;/div&gt;&lt;div&gt;étape: Configuration de l’environnement, Initialisation de la structure&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;glass=0;strokeWidth=1;shadow=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" vertex="1">
           <mxGeometry y="280" width="400" height="120" as="geometry" />
         </mxCell>
         <mxCell id="MzqjUUQ03-ekEMJwUfET-6" value="" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" source="MzqjUUQ03-ekEMJwUfET-5" target="MzqjUUQ03-ekEMJwUfET-8" edge="1">
@@ -30,7 +38,7 @@
             <Array as="points" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="MzqjUUQ03-ekEMJwUfET-8" value="&lt;b&gt;6.3 Exécution d&#39;un cycle complet d&#39;entraînement&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;glass=0;strokeWidth=1;shadow=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" vertex="1">
+        <mxCell id="MzqjUUQ03-ekEMJwUfET-8" value="&lt;b&gt;6.3 Exécution d&#39;un cycle complet d&#39;entraînement&lt;/b&gt;&lt;div&gt;&lt;b&gt;&lt;br&gt;&lt;/b&gt;&lt;/div&gt;&lt;div&gt;étape:&amp;nbsp;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;Réalisation d’arrêt anticipé, et d&#39;automatisation pour l&#39;optimisation des hyper-paramètres,&lt;/span&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;glass=0;strokeWidth=1;shadow=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" vertex="1">
           <mxGeometry y="440" width="400" height="120" as="geometry" />
         </mxCell>
         <mxCell id="MzqjUUQ03-ekEMJwUfET-9" value="" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" source="MzqjUUQ03-ekEMJwUfET-8" target="MzqjUUQ03-ekEMJwUfET-10" edge="1">
@@ -43,7 +51,7 @@
         <mxCell id="MzqjUUQ03-ekEMJwUfET-18" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" source="MzqjUUQ03-ekEMJwUfET-10" target="c4pWjjOEcurI2IpJ5nb5-2" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="MzqjUUQ03-ekEMJwUfET-10" value="&lt;b&gt;6.3 Évaluation préliminaire des résultats&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;glass=0;strokeWidth=1;shadow=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" vertex="1">
+        <mxCell id="MzqjUUQ03-ekEMJwUfET-10" value="&lt;b&gt;6.3 Évaluation préliminaire des résultats&lt;/b&gt;&lt;div&gt;&lt;b&gt;&lt;br&gt;&lt;/b&gt;&lt;/div&gt;&lt;div&gt;étape: Visualisation des résultat, Observation et Analyse de la courbe de la fonction de perte par Tensorboard&amp;nbsp;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;glass=0;strokeWidth=1;shadow=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" vertex="1">
           <mxGeometry y="600" width="400" height="120" as="geometry" />
         </mxCell>
         <mxCell id="MzqjUUQ03-ekEMJwUfET-11" value="" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" source="MzqjUUQ03-ekEMJwUfET-10" target="MzqjUUQ03-ekEMJwUfET-12" edge="1">
@@ -55,16 +63,16 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="c4pWjjOEcurI2IpJ5nb5-10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="MzqjUUQ03-ekEMJwUfET-12" target="MzqjUUQ03-ekEMJwUfET-5">
+        <mxCell id="c4pWjjOEcurI2IpJ5nb5-10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" source="MzqjUUQ03-ekEMJwUfET-12" target="MzqjUUQ03-ekEMJwUfET-5" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="MzqjUUQ03-ekEMJwUfET-12" value="&lt;b&gt;6.3 Modification du modèle selon les résultats&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;glass=0;strokeWidth=1;shadow=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" vertex="1">
+        <mxCell id="MzqjUUQ03-ekEMJwUfET-12" value="&lt;b&gt;6.3 Modification du modèle selon les résultats&lt;/b&gt;&lt;div&gt;&lt;b&gt;&lt;br&gt;&lt;/b&gt;&lt;/div&gt;&lt;div&gt;étape:&amp;nbsp;&amp;nbsp;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;Configuration des hyper-paramètres,&amp;nbsp;&lt;/span&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;Modification de la structure du modèle (Résiduel Block, FPN, Self-attention module, etc.)&amp;nbsp;&lt;/span&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;glass=0;strokeWidth=1;shadow=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" vertex="1">
           <mxGeometry x="440" y="440" width="400" height="120" as="geometry" />
         </mxCell>
         <mxCell id="MzqjUUQ03-ekEMJwUfET-21" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" source="MzqjUUQ03-ekEMJwUfET-15" target="MzqjUUQ03-ekEMJwUfET-19" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="MzqjUUQ03-ekEMJwUfET-15" value="&lt;span style=&quot;text-align: left;&quot;&gt;&lt;b&gt;7 Validation sur région de test&lt;/b&gt;&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;glass=0;strokeWidth=1;shadow=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" vertex="1">
+        <mxCell id="MzqjUUQ03-ekEMJwUfET-15" value="&lt;span style=&quot;text-align: left;&quot;&gt;&lt;b&gt;7 Validation sur région de test&lt;/b&gt;&lt;/span&gt;&lt;div&gt;&lt;span style=&quot;text-align: left;&quot;&gt;&lt;b&gt;&lt;br&gt;&lt;/b&gt;&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;&quot;&gt;étape: Tests sur régions sélectionées, Analyse&amp;nbsp;qualitative/quantitative&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;glass=0;strokeWidth=1;shadow=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" vertex="1">
           <mxGeometry y="920" width="400" height="120" as="geometry" />
         </mxCell>
         <mxCell id="MzqjUUQ03-ekEMJwUfET-19" value="&lt;span style=&quot;text-align: left;&quot;&gt;&lt;b&gt;7 Version finale du modèle&lt;/b&gt;&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;glass=0;strokeWidth=1;shadow=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" vertex="1">
@@ -76,10 +84,10 @@
         <mxCell id="Wz2Sv3Q2imp9iYNjNtWV-4" value="&lt;span style=&quot;color: rgb(0, 0, 0); font-family: Helvetica; font-size: 16px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400; letter-spacing: normal; orphans: 2; text-align: center; text-indent: 0px; text-transform: none; widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; white-space: normal; background-color: rgb(251, 251, 251); text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; float: none; display: inline !important;&quot;&gt;Validation négative (MSE non acceptable)&lt;/span&gt;" style="text;whiteSpace=wrap;html=1;" parent="WIyWlLk6GJQsqaUBKTNV-1" vertex="1">
           <mxGeometry x="414" y="670" width="316" height="20" as="geometry" />
         </mxCell>
-        <mxCell id="c4pWjjOEcurI2IpJ5nb5-9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="c4pWjjOEcurI2IpJ5nb5-2" target="MzqjUUQ03-ekEMJwUfET-15">
+        <mxCell id="c4pWjjOEcurI2IpJ5nb5-9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" source="c4pWjjOEcurI2IpJ5nb5-2" target="MzqjUUQ03-ekEMJwUfET-15" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="c4pWjjOEcurI2IpJ5nb5-2" value="&lt;b&gt;6.4 Post-traitement des résultats&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;glass=0;strokeWidth=1;shadow=0;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+        <mxCell id="c4pWjjOEcurI2IpJ5nb5-2" value="&lt;b&gt;6.4 Post-traitement des résultats&lt;/b&gt;&lt;div&gt;&lt;b&gt;&lt;br&gt;&lt;/b&gt;&lt;/div&gt;&lt;div&gt;étape: Visualization des résultat de différentes manières, Analyse des changements temporels, Génération du résultat final de détection&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;glass=0;strokeWidth=1;shadow=0;" parent="WIyWlLk6GJQsqaUBKTNV-1" vertex="1">
           <mxGeometry y="760" width="400" height="120" as="geometry" />
         </mxCell>
       </root>
