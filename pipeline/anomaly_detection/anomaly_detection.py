@@ -484,6 +484,7 @@ class AnomalyDetection:
     def generate_large_change_map(
         self,
         target_date,
+        prev_date,
         base_filename_part="622_975_S1A__IW___D_",
         suffix_template="_VV_gamma0-rtc_db_{row}_{col}_fused.tif",
         image_dir="/home/yifan/Documents/data/forest/test/processed",
@@ -493,15 +494,19 @@ class AnomalyDetection:
     ):
         """
         将原先在内存中拼成大图后投影的做法，改为：
-          1) 一次性获取所有 tile 的 pixel loss，用 GMM 训练
-          2) 逐块应用 GMM，输出每个瓦片的 anomaly_target / anomaly_prev / difference
-          3) 读取瓦片原始的 transform/crs，并写出地理对齐的结果 GeoTIFF
-          4) 最后将所有差异瓦片矢量化，合并为一个 Shapefile
+        1) 一次性获取所有 tile 的 pixel loss，用 GMM 训练
+        2) 逐块应用 GMM，输出每个瓦片的 anomaly_target / anomaly_prev / difference
+        3) 读取瓦片原始的 transform/crs，并写出地理对齐的结果 GeoTIFF
+        4) 最后将所有差异瓦片矢量化，合并为一个 Shapefile
+
+        现在通过 prev_date 参数手动指定“前一日期”，而不再自动推断。
         """
         from rasterio.features import shapes as rasterio_shapes
         
-        # ========== 1. 根据 target_date 找到对应的前一日期，以及瓦片数据 ==========
+        # ========== 1. 解析目标日期与手动指定的前一日期 ==========
         target_datetime = datetime.strptime(target_date, "%Y%m%d")
+        prev_datetime = datetime.strptime(prev_date, "%Y%m%d")
+        
         all_images = glob.glob(os.path.join(image_dir, f"{base_filename_part}*"))
         if len(all_images) == 0:
             print("未找到任何匹配的图像文件。")
@@ -514,28 +519,14 @@ class AnomalyDetection:
                 date_to_paths[date_obj] = []
             date_to_paths[date_obj].append(path)
         
-        all_dates = sorted(date_to_paths.keys())
-        prev_date = None
-        for d in all_dates:
-            if d < target_datetime:
-                prev_date = d
-            elif d == target_datetime:
-                continue
-            else:
-                break
-        
-        if prev_date is None:
-            print(f"未能找到 {target_date} 的前一日期图像。")
-            return None
-        
         target_images_all = date_to_paths.get(target_datetime, [])
-        prev_images_all = date_to_paths.get(prev_date, [])
+        prev_images_all = date_to_paths.get(prev_datetime, [])
         
         if len(target_images_all) == 0:
             print(f"未找到目标日期 {target_date} 的图像。")
             return None
         if len(prev_images_all) == 0:
-            print(f"未找到前一日期 {prev_date.strftime('%Y%m%d')} 的图像。")
+            print(f"未找到前一日期 {prev_date} 的图像。")
             return None
         
         # ========== 2. 匹配并收集公共瓦片 ==========
@@ -571,11 +562,7 @@ class AnomalyDetection:
             读取2波段影像, 做model推断, 得到 pixel_loss_sum。
             """
             try:
-                # 这里继续用 tifffile 或者用 rasterio 读取都可以。
-                # 若要拿 transform, crs 等, 后面再用 rasterio.open(...) 读取
                 combined_image = tiff.imread(image_path)
-                
-                # 校验波段维度
                 if combined_image.ndim == 2:
                     combined_image = combined_image[np.newaxis, ...]  # shape=(1,H,W)
                 elif combined_image.ndim == 3:
@@ -619,7 +606,6 @@ class AnomalyDetection:
             pixel_loss_target_dict[(row, col)] = pl_target
             pixel_loss_prev_dict[(row, col)] = pl_prev
             
-            # 收集像素损失到 GMM 训练集
             all_pixel_losses.append(pl_target.flatten())
             all_pixel_losses.append(pl_prev.flatten())
         
@@ -635,42 +621,32 @@ class AnomalyDetection:
         anomaly_cluster = np.argmax(component_means)
         
         # ========== 5. 对每个瓦片应用分类, 并分别写出结果 ==========
-        # 这里我们准备收集所有切片的差异多边形, 最后合并到一个Shapefile
         polygons_all = []
-        
-        # 创建输出文件夹
         os.makedirs(self.args.results_path, exist_ok=True)
         
         for (row, col), pl_target in pixel_loss_target_dict.items():
             pl_prev = pixel_loss_prev_dict[(row, col)]
             
-            # 应用 GMM
             pred_target = gmm.predict(pl_target.flatten().reshape(-1, 1))
             anomaly_target = (pred_target.reshape(pl_target.shape) == anomaly_cluster).astype(np.uint8)
             
             pred_prev = gmm.predict(pl_prev.flatten().reshape(-1, 1))
             anomaly_prev = (pred_prev.reshape(pl_prev.shape) == anomaly_cluster).astype(np.uint8)
             
-            # ========== (A) 强制 pixel_loss 小于阈值时不可判为“not forest” ========== 
-            # 如果该像素损失低于阈值，则认定它是“forest”(0)
+            # 小于阈值则判定为 forest=0
             anomaly_target[pl_target < pixel_loss_threshold] = 0
             anomaly_prev[pl_prev < pixel_loss_threshold] = 0
             
-            # 可选：对 anomaly_target 和 anomaly_prev 做小连通域过滤
             anomaly_target = self._filter_small_components(anomaly_target, min_size=min_size)
             anomaly_prev = self._filter_small_components(anomaly_prev, min_size=min_size)
             
-            # ========== (B) 修正 difference_tile 的定义，仅标记“forest→not forest” ========== 
-            # forest=0, not forest=1，因此仅在 anomaly_prev=0 且 anomaly_target=1 时记为1
-            difference_tile = np.where((anomaly_prev == 0) & (anomaly_target == 1),1, 0).astype(np.uint8)
+            difference_tile = np.where((anomaly_prev == 0) & (anomaly_target == 1), 1, 0).astype(np.uint8)
             difference_tile = self._filter_small_components(difference_tile, min_size=min_size)
             
-            # 从目标瓦片获取 transform / crs
             with rasterio.open(target_map[(row, col)]) as src_tile:
                 tile_crs = src_tile.crs
                 tile_transform = src_tile.transform
                 
-            # 矢量化并保存当前瓦片的差异地图
             tile_polygons = []
             shapes_gen = rasterio_shapes(difference_tile, transform=tile_transform)
             for geom, val in shapes_gen:
@@ -679,28 +655,21 @@ class AnomalyDetection:
                     
             if len(tile_polygons) > 0:
                 tile_gdf = gpd.GeoDataFrame(geometry=tile_polygons, crs=tile_crs)
-                
-                # 在该瓦片专属子目录内写出小 Shapefile
                 subfolder = os.path.join(self.args.results_path, f"{row}_{col}")
                 os.makedirs(subfolder, exist_ok=True)
                 tile_shp_path = os.path.join(subfolder, f"difference_{row}_{col}.shp")
                 tile_gdf.to_file(tile_shp_path, driver='ESRI Shapefile', encoding='utf-8')
-                
-                # 同时累积到 polygons_all
                 polygons_all.extend(tile_polygons)
                 
             print(f"完成瓦片 row={row}, col={col} 的差异矢量化。")
-            
-        # ========== 7. 合并所有瓦片的多边形，保存为一个Shapefile ==========
+        
+        # ========== 6. 合并所有瓦片多边形，保存为一个Shapefile ==========
         if len(polygons_all) > 0:
-            # 以最后一个瓦片的 CRS 或者任意一个瓦片的 CRS 为准
-            # 这里假设所有瓦片 crs 一致，所以选用 tile_crs (最后读到的一个)
             gdf = gpd.GeoDataFrame(geometry=polygons_all, crs=tile_crs)
-            # 也可考虑 dissolve 或 unary_union 合并重叠多边形
             shp_path = os.path.join(self.args.results_path, f'anomaly_difference_{target_date}.shp')
             gdf.to_file(shp_path, driver='ESRI Shapefile', encoding='utf-8')
             print(f"已保存合并差异区域 Shapefile: {shp_path}")
         else:
             print("差异图中未找到任何异常区域对应的多边形。")
         
-        return True  # 或返回你需要的其他信息
+        return True
