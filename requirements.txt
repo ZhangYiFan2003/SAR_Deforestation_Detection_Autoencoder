@@ -10,5 +10,6 @@ scikit-learn==1.5.1
 scikit-image==0.24.0
 scipy==1.13.1
 tifffile==2023.4.12
+rasterio==1.4.3
 tensorboard==2.12.1
 pillow==11.0.0

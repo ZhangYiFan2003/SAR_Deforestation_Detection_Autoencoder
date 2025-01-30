@@ -8,17 +8,8 @@ This project aims to detect deforestation in SAR (Synthetic Aperture Radar) imag
 ## Current Trainig Effect
 ![Current Effect](https://i.imgur.com/AsMkAUt.png)
 
-## Project Structure
-
-The project includes seven main Python scripts:
-
-1. **`train.py`**: The primary script for training or testing the autoencoder model. It handles hyperparameter optimization (using Optuna), model training, early stopping, and result visualization.
-2. **`AE.py`**: Implements the core functionalities of the autoencoder network, including the encoder, decoder, training, and validation methods.
-3. **`VAE.py`**: Implements the core functionalities of a Variational Autoencoder (VAE), including the encoder, decoder, training, and validation methods. By adding probabilistic modeling of the latent space, VAE captures the data's complex distribution more effectively.
-4. **`architectures.py`**: Defines the architecture components of the autoencoder, including custom modules for the encoder and decoder.
-5. **`datasets.py`**: Handles data loading and preprocessing. Custom dataset classes load forest images stored in `.tif` format and transform them into a format suitable for training and evaluation.
-6. **`early_stopping.py`**: Implements early stopping functionality to terminate training when validation loss no longer decreases, preventing overfitting. It uses moving average smoothing to evaluate validation loss and saves the best model weights.
-7. **`loss_distribution_analyse.py`**: Analyzes the distribution of pixel-level MSE losses and visualizes MSE heatmaps during the testing phase.
+## Current Detection result
+![Current Effect](https://i.imgur.com/xA5NGhi.png)
 
 ## Dataset Structure
 
@@ -73,58 +64,6 @@ In `datasets.py`, custom datasets load preprocessed SAR data from `.tif` images.
 
 - **AE Loss Function**: Uses Mean Squared Error (MSE) for reconstruction loss, comparing reconstructed outputs with original inputs to evaluate the model's learning capability.
 - **VAE Loss Function**: Combines reconstruction loss (MSE) with Kullback-Leibler Divergence (KLD) to measure the discrepancy between the latent space and a standard normal distribution. The KLD ensures that VAE learns a smooth and reasonable latent space distribution, generating more diverse samples.
-
-## File Details
-
-### train:
-
-- Entry point for the project.
-- Includes command-line arguments for various hyperparameters.
-- Implements core training and testing loops.
-
-### ae:
-
-- Defines the autoencoder (`AE_Network` and `AE`) class.
-- Implements train and validation functions.
-
-### vae:
-
-- Defines the Variational Autoencoder (`VAE_Network` and `VAE`) class.
-- Implements reparameterization, training and validation functions.
-
-### architectures:
-
-- Contains `Encoder`, `Decoder`, `ResidualBlock`, and `SelfAttention` classes.
-- Uses feature mapping, residual blocks, and attention mechanisms for encoding and decoding.
-
-### datasets:
-
-- Defines `ProcessedForestDataset` and `ProcessedForestDataLoader` classes.
-- Handles preprocessing and batching of `.tif` images.
-
-### early_stopping:
-
-- Defines the `EarlyStopping` class.
-- Implements functionality to terminate training when validation loss stagnates, preventing overfitting.
-
-### loss_distribution_analyse:
-
-- Defines the `LossDistributionAnalysis` class.
-- Computes pixel-level MSE loss during testing and generates MSE heatmaps for analysis.
-
-## Installation and Dependencies:
-
-The project requires Python 3 and the following key libraries:
-
-- **PyTorch**: For neural network implementation and training.
-- **Torchvision**: For image preprocessing transformations.
-- **Optuna**: For hyperparameter optimization.
-- **Numpy**: For numerical computations.
-- **Matplotlib**: For plotting and result visualization.
-- **Pandas**: For data processing and analysis.
-- **Tifffile**: For handling `.tif` images.
-- **TensorBoard**: For logging and visualizing training metrics.
-- **Pillow**: For image processing.
 
 ### Installing Required Libraries
 
