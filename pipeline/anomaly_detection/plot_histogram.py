@@ -8,11 +8,8 @@ import random
 
 #####################################################################################################################################################
 
-class Visualization:
+class Plot:
     def _plot_histogram(self, data, title, xlabel, ylabel, save_path, hyperparameters, color='blue', alpha=0.7, bins=1000, xlim=(0, 0.0015)):
-        """
-        Plots a histogram of the data with additional hyperparameter information.
-        """
         plt.figure(figsize=(10, 6))
         plt.hist(data, bins=bins, color=color, alpha=alpha, edgecolor='black', density=True)
         plt.yscale('log')  
@@ -33,14 +30,14 @@ class Visualization:
         pattern = os.path.join(image_dir, "*.tif")
         image_paths = glob.glob(pattern)
         if len(image_paths) == 0:
-            print("未找到测试数据集中的TIFF图像文件。")
+            print("No TIFF image files found in the test dataset.")
             return
         
         transform = None  
         from torch.nn import MSELoss
         loss_fn = MSELoss(reduction='none')
         all_pixel_errors = []
-        print("开始计算所有测试图像的像素级误差...")
+        print("Starting to compute pixel-level errors for all test images...")
         
         for idx, img_path in enumerate(image_paths):
             try:
@@ -64,7 +61,7 @@ class Visualization:
                 if (idx + 1) % 50 == 0 or (idx + 1) == len(image_paths):
                     print(f"{idx + 1} / {len(image_paths)} images traité。")
             except Exception as e:
-                print(f"处理图像 {img_path} 时出错：{e}")
+                print(f"Error processing image {img_path}: {e}")
                 continue
             
         all_pixel_errors = np.array(all_pixel_errors)
@@ -82,7 +79,7 @@ class Visualization:
         hist_save_path = os.path.join(self.args.results_path, 'pixel_error_histogram.png')
         plt.savefig(hist_save_path, bbox_inches='tight')
         plt.close()
-        print(f"像素级误差直方图已保存到 {hist_save_path}")
+        print(f"Pixel error histogram saved to {hist_save_path}")
 
 #####################################################################################################################################################
 

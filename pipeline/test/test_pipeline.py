@@ -1,9 +1,15 @@
 import os, sys
 import torch
 
+from pipeline.anomaly_detection.anomaly_detection_pipeline import AnomalyDetectionPipeline
+
 #####################################################################################################################################################
 
-def test_model(args, autoenc, data_loader, anomaly_detection):
+def test_model(args, autoenc, data_loader):
+    
+    anomaly_detection = AnomalyDetectionPipeline(autoenc.model, data_loader.train_loader, data_loader.validation_loader, 
+                                                 data_loader.test_loader, autoenc.device, args)
+    
     weight_path = os.path.join(args.results_path, "best_model.pth")
     if not os.path.exists(weight_path):
         print("No weight file named 'best_model.pth' found for testing.")

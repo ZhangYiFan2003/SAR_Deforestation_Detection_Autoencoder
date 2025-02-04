@@ -6,7 +6,6 @@ from pipeline.test.test_pipeline import test_model
 from pipeline.models.autoencoder import AE
 from pipeline.models.variational_autoencoder import VAE
 from pipeline.datasets.data_loader import ProcessedForestDataLoader  
-from pipeline.anomaly_detection.anomaly_detection_pipeline import AnomalyDetectionPipeline
 
 #####################################################################################################################################################
 
@@ -27,15 +26,10 @@ def main():
     try:
         autoenc = architectures[args.model]
     except KeyError:
-        print('---------------------------------')
         print('Model architecture not supported.')
-        print('---------------------------------')
         sys.exit()
     
     data_loader = ProcessedForestDataLoader(args)
-    
-    anomaly_detection = AnomalyDetectionPipeline(autoenc.model, data_loader.train_loader, data_loader.validation_loader, 
-                                                 data_loader.test_loader, autoenc.device, args)
     
     if not os.path.exists(args.results_path):
         os.makedirs(args.results_path)
@@ -44,7 +38,7 @@ def main():
         train_model(args, autoenc, architectures)
     
     if args.test:
-        test_model(args, autoenc, data_loader, anomaly_detection)
+        test_model(args, autoenc, data_loader)
 
 #####################################################################################################################################################
 

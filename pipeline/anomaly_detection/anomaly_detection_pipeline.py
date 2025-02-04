@@ -1,10 +1,10 @@
 from torch.utils.tensorboard import SummaryWriter
-from pipeline.anomaly_detection.visualization import Visualization
+from pipeline.anomaly_detection.plot_histogram import Plot
 from pipeline.anomaly_detection.anomaly_detection import AnomalyDetection
 
 #####################################################################################################################################################
 
-class AnomalyDetectionPipeline(AnomalyDetection,Visualization):
+class AnomalyDetectionPipeline(AnomalyDetection,Plot):
     def __init__(self, model, train_loader, validation_loader, test_loader, device, args):
         """
         Initializes the LossDistributionAnalysis class for analyzing the pixel-level loss distributions.
