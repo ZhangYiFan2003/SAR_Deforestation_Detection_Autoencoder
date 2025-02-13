@@ -47,11 +47,11 @@ def fuse_and_split_images(
             with rasterio.open(vv_path) as vv_src, rasterio.open(vh_path) as vh_src:
                 # Check if CRS and transform are consistent
                 if (vv_src.crs != vh_src.crs) or (vv_src.transform != vh_src.transform):
-                    raise ValueError(f"文件 {vv_file} 和 {vh_file} 的 CRS 或 Transform 不一致")
+                    raise ValueError(f"The CRS or Transform of files {vv_file} and {vh_file} are inconsistent")
                 
                 # Check if dimensions are consistent
                 if (vv_src.width != vh_src.width) or (vv_src.height != vh_src.height):
-                    raise ValueError(f"文件 {vv_file} 和 {vh_file} 的尺寸不一致")
+                    raise ValueError(f"The sizes of files {vv_file} and {vh_file} do not match")
                 
                 # Read VV and VH data (assuming single band for each)
                 vv_data = vv_src.read(1)  
@@ -128,7 +128,6 @@ def fuse_and_split_images(
     
     print("All images have been successfully fused and split into tiles.")
 
-# 示例调用
 if __name__ == "__main__":
     vv_dir = '/home/yifan/Documents/data/forest/test/VV'
     vh_dir = '/home/yifan/Documents/data/forest/test/VH'
