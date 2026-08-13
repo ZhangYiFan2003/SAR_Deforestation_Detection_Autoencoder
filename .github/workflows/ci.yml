@@ -22,4 +22,4 @@ jobs:
       - name: Syntax check
         run: python -m compileall -q config pipeline scripts train.py
       - name: Unit and CPU integration tests
-        run: pytest -q
+        run: python -m pytest -q
