@@ -41,10 +41,11 @@ class ResidualBlock(nn.Module):
 #####################################################################################################################################################
 
 class SelfAttention(nn.Module):
-    def __init__(self, in_dim):
+    def __init__(self, in_dim, scaled=False):
         super(SelfAttention, self).__init__()
         # Channel dimension of input
         self.channel_in = in_dim
+        self.scaled = scaled
         
         # Query, key, and value convolutions
         self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
@@ -70,6 +71,8 @@ class SelfAttention(nn.Module):
         proj_query  = self.query_conv(x).view(m_batchsize, -1, width*height)         # B, C', N
         proj_key    = self.key_conv(x).view(m_batchsize, -1, width*height)           # B, C', N
         energy      = torch.bmm(proj_query.permute(0, 2, 1), proj_key)               # B, N, N
+        if self.scaled:
+            energy = energy / (proj_query.shape[1] ** 0.5)
         attention   = self.softmax(energy)                                           # B, N, N
         proj_value  = self.value_conv(x).view(m_batchsize, -1, width*height)         # B, C, N
         
@@ -83,7 +86,7 @@ class SelfAttention(nn.Module):
 #####################################################################################################################################################
 
 class Encoder(nn.Module):
-    def __init__(self, output_size, input_size=(2, 256, 256)):
+    def __init__(self, output_size, input_size=(2, 256, 256), attention_variant='legacy'):
         super(Encoder, self).__init__()
         self.input_size = input_size
         # Base channel multiplier
@@ -104,7 +107,9 @@ class Encoder(nn.Module):
         self.encoder5 = self._make_layer(self.channel_mult * 8, self.channel_mult * 8, 2)  
         
         # Add self-attention layer to capture global context
-        self.attention = SelfAttention(self.channel_mult * 8)
+        self.attention = SelfAttention(
+            self.channel_mult * 8, scaled=attention_variant == 'scaled'
+        )
         
         # Lateral convolution layers for FPN (Feature Pyramid Network)
         self.lateral_conv1 = nn.Conv2d(self.channel_mult*8, 256, kernel_size=1)
@@ -181,9 +186,12 @@ class Encoder(nn.Module):
 #####################################################################################################################################################
 
 class Decoder(nn.Module):
-    def __init__(self, embedding_size, input_size=(2, 256, 256)):
+    def __init__(self, embedding_size, input_size=(2, 256, 256),
+                 output_activation='legacy_tanh', fpn_skips='p4+p3',
+                 attention_variant='legacy'):
         super(Decoder, self).__init__()
         self.input_dim = embedding_size
+        self.fpn_skips = fpn_skips
         # Base channel multiplier
         self.channel_mult = 64  
         
@@ -202,12 +210,18 @@ class Decoder(nn.Module):
         self.decoder6 = self._up_block(64, 32)    
         
         # Self-attention layer after decoder3 to enhance feature representation
-        self.attention_decoder = SelfAttention(256)
+        self.attention_decoder = SelfAttention(
+            256, scaled=attention_variant == 'scaled'
+        )
         
         # Final output layer: Convolution to 2 channels with Tanh activation
+        activation = {
+            'legacy_tanh': nn.Tanh(),
+            'sigmoid': nn.Sigmoid(),
+            'linear': nn.Identity(),
+        }[output_activation]
         self.final = nn.Sequential(
-            nn.Conv2d(32, 2, kernel_size=3, stride=1, padding=1),
-            nn.Tanh()
+            nn.Conv2d(32, 2, kernel_size=3, stride=1, padding=1), activation
         )
     
     def _up_block(self, in_channels, out_channels):
@@ -230,10 +244,12 @@ class Decoder(nn.Module):
         
         # Upsampling and feature fusion with FPN outputs
         x = self.decoder1(x)                        # -> [batch, 256, 8, 8]
-        x = x + fpn_features[1]                     # Fuse with FPN feature p4
+        if self.fpn_skips in ('p4', 'p4+p3'):
+            x = x + fpn_features[1]                 # Fuse with FPN feature p4
         
         x = self.decoder2(x)                        # -> [batch, 256, 16, 16]
-        x = x + fpn_features[2]                     # Fuse with FPN feature p3
+        if self.fpn_skips == 'p4+p3':
+            x = x + fpn_features[2]                 # Fuse with FPN feature p3
         
         x = self.decoder3(x)                        # -> [batch, 256, 32, 32]
         

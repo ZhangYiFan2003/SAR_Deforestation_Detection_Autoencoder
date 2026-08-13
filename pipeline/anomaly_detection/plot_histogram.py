@@ -26,7 +26,8 @@ class Plot:
 
 #####################################################################################################################################################
 
-    def plot_pixel_error_histogram(self, image_dir="/home/yifan/Documents/data/forest/test/processed", num_bins=1000):
+    def plot_pixel_error_histogram(self, image_dir=None, num_bins=1000):
+        image_dir = image_dir or self.args.test_dir
         pattern = os.path.join(image_dir, "*.tif")
         image_paths = glob.glob(pattern)
         if len(image_paths) == 0:
@@ -41,13 +42,7 @@ class Plot:
         
         for idx, img_path in enumerate(image_paths):
             try:
-                combined_image = tiff.imread(img_path)
-                if combined_image.ndim == 2:
-                    combined_image = combined_image[np.newaxis, ...]
-                elif combined_image.ndim == 3:
-                    if combined_image.shape[0] != 2 and combined_image.shape[-1] == 2:
-                        combined_image = np.transpose(combined_image, (2, 0, 1))
-                img_tensor = torch.from_numpy(combined_image).float()
+                img_tensor = self.sar_transform.read(img_path)
                 if transform:
                     img_tensor = transform(img_tensor)
                 img_tensor = img_tensor.unsqueeze(0).to(self.device)

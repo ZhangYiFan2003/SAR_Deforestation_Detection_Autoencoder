@@ -1,4 +1,5 @@
 import os, re, glob
+import logging
 import torch
 import random
 import rasterio
@@ -6,7 +7,6 @@ import numpy as np
 import tifffile as tiff
 import geopandas as gpd
 import matplotlib.pyplot as plt
-import torchvision.transforms as transforms
 
 from scipy.ndimage import label
 from shapely.geometry import shape
@@ -14,10 +14,39 @@ from datetime import datetime
 from torch.nn import MSELoss
 from sklearn.cluster import KMeans
 from sklearn.mixture import GaussianMixture
+from pipeline.anomaly_detection.reports import InferenceRunReport
+from pipeline.anomaly_detection.detectors import ReconstructionErrorDetector
+
+
+LOGGER = logging.getLogger(__name__)
 
 #####################################################################################################################################################
 
 class AnomalyDetection:
+
+    def _vectorize_difference_tile(self, difference_tile, source_path, row, col):
+        from rasterio.features import shapes as rasterio_shapes
+
+        with rasterio.open(source_path) as src_tile:
+            tile_crs = src_tile.crs
+            tile_transform = src_tile.transform
+        if tile_crs is None:
+            raise ValueError(f"Cannot vectorize GeoTIFF without CRS: {source_path}")
+        polygons = [
+            shape(geometry)
+            for geometry, value in rasterio_shapes(difference_tile, transform=tile_transform)
+            if value == 1
+        ]
+        if polygons:
+            tile_gdf = gpd.GeoDataFrame(geometry=polygons, crs=tile_crs)
+            subfolder = os.path.join(self.args.results_path, f"{row}_{col}")
+            os.makedirs(subfolder, exist_ok=True)
+            tile_gdf.to_file(
+                os.path.join(subfolder, f"difference_{row}_{col}.shp"),
+                driver='ESRI Shapefile',
+                encoding='utf-8',
+            )
+        return polygons, tile_crs
 
     def _extract_date_from_path(self, path, pattern=r'D_(\d{8})T'):
         match = re.search(pattern, path)
@@ -29,28 +58,7 @@ class AnomalyDetection:
     def _load_and_preprocess_image(self, image_path, device, transform=None, min_val=None, max_val=None):
         # Loads and preprocesses a single image, returning the corresponding Tensor and the original numpy array.
         combined_image = tiff.imread(image_path)
-        if combined_image.ndim == 2:
-            combined_image = combined_image[np.newaxis, ...]
-        elif combined_image.ndim == 3:
-            if combined_image.shape[0] == 2:
-                pass
-            elif combined_image.shape[-1] == 2:
-                combined_image = np.transpose(combined_image, (2, 0, 1))
-            else:
-                raise ValueError(f"Expected 2 channels, but found {combined_image.shape[-1]} channels in file {image_path}.")
-        else:
-            raise ValueError(f"Incorrect image dimensions: {combined_image.ndim}, file path: {image_path}")
-        
-        if combined_image.shape[0] != 2:
-            raise ValueError(f"Expected 2 channels, but found {combined_image.shape[0]} channels in file {image_path}.")
-        
-        img_tensor = torch.from_numpy(combined_image).float()
-        
-        # Normalize the image
-        if min_val is not None and max_val is not None:
-            img_tensor = (img_tensor - min_val) / (max_val - min_val + 1e-8)
-            img_tensor = torch.clamp(img_tensor, 0.0, 1.0)
-            
+        img_tensor = self.sar_transform(combined_image, source=image_path)
         # Apply transform if provided
         if transform:
             img_tensor = transform(img_tensor)
@@ -109,11 +117,14 @@ class AnomalyDetection:
         return filtered_map
 
     def _fit_global_gmm(self, all_pixel_errors):
-        gmm = GaussianMixture(n_components=2, random_state=0)
-        gmm.fit(all_pixel_errors)
-        component_means = gmm.means_.flatten()
-        anomaly_cluster = np.argmax(component_means)
-        return gmm, anomaly_cluster, component_means[anomaly_cluster]
+        detector = ReconstructionErrorDetector(
+            mode="transductive_gmm",
+            fit_split="test",
+            fit_scope="selected_test_image_pixel_errors",
+        ).fit(all_pixel_errors)
+        self.detector_metadata = detector.metadata()
+        component_means = detector.model.means_.flatten()
+        return detector.model, detector.anomaly_cluster, component_means[detector.anomaly_cluster]
 
     def _predict_anomaly_map(self, pixel_loss_sum, gmm, anomaly_cluster, mse_min=0, mse_max=1050, min_size=50):
         pixel_losses = pixel_loss_sum.flatten().reshape(-1, 1)
@@ -165,20 +176,13 @@ class AnomalyDetection:
                 current_date = self._extract_date_from_path(img_path).strftime("%Y-%m-%d")
                 image_dates.append(current_date)
                 
-                summed_image = combined_image.sum(axis=0)
-                if min_val is not None and max_val is not None:
-                    summed_image = (summed_image - min_val) / (max_val - min_val + 1e-8)
-                    summed_image = np.clip(summed_image, 0.0, 1.0)
-                else:
-                    # If not normalizing, but a transform is provided, attempt to normalize
-                    if transform:
-                        summed_image = (summed_image - summed_image.min()) / (summed_image.max() - summed_image.min() + 1e-8)
-                        summed_image = np.clip(summed_image, 0.0, 1.0)
+                summed_image = img_tensor.squeeze(0).cpu().numpy().sum(axis=0)
                         
                 summed_images.append(summed_image)
                 
             except Exception as e:
                 print(f"Error processing image {img_path}: {e}")
+                LOGGER.exception("stage=inference file=%s error_type=%s", img_path, type(e).__name__)
                 continue
             
         return all_pixel_errors, pixel_loss_sums, image_dates, summed_images
@@ -275,8 +279,9 @@ class AnomalyDetection:
     def reconstruct_and_analyze_images_by_time_sequence(self, 
                                                         target_date, 
                                                         base_filename_part="622_975_S1A__IW___D_", 
-                                                        suffix="_VV_gamma0-rtc_db_0_0_fused.tif"):
-        image_dir = "/home/yifan/Documents/data/forest/test/processed"
+                                                        suffix="_VV_gamma0-rtc_db_0_0_fused.tif",
+                                                        image_dir=None):
+        image_dir = image_dir or self.args.test_dir
         pattern = os.path.join(image_dir, f"{base_filename_part}*{suffix}")
         image_paths = glob.glob(pattern)
         if len(image_paths) == 0:
@@ -290,7 +295,7 @@ class AnomalyDetection:
         
         print(f"Selected images for date {target_date} and 2 images before and after.")
         
-        transform = transforms.Compose([])
+        transform = None
         num_images = len(selected_image_paths)
         fig, axes = plt.subplots(5, num_images, figsize=(num_images * 4, 25))
         
@@ -363,8 +368,9 @@ class AnomalyDetection:
     def reconstruct_and_analyze_images_by_clustering(self, 
                                                      target_date, 
                                                      base_filename_part="622_975_S1A__IW___D_", 
-                                                     suffix="_VV_gamma0-rtc_db_0_0_fused.tif"):
-        image_dir = "/home/yifan/Documents/data/forest/test/processed"
+                                                     suffix="_VV_gamma0-rtc_db_0_0_fused.tif",
+                                                     image_dir=None):
+        image_dir = image_dir or self.args.test_dir
         pattern = os.path.join(image_dir, f"{base_filename_part}*{suffix}")
         image_paths = glob.glob(pattern)
         if len(image_paths) == 0:
@@ -378,7 +384,7 @@ class AnomalyDetection:
         
         print(f"Selected images for date {target_date} and 2 images before and after")
         
-        transform = transforms.Compose([])
+        transform = None
         num_images = len(selected_image_paths)
         
         mse_min = 0
@@ -466,14 +472,13 @@ class AnomalyDetection:
         prev_date,
         base_filename_part="622_975_S1A__IW___D_",
         suffix_template="_VV_gamma0-rtc_db_{row}_{col}_fused.tif",
-        image_dir="/home/yifan/Documents/data/forest/test/processed",
+        image_dir=None,
         tile_size=256,
         min_size=100,
         pixel_loss_threshold=1.0
     ):
-        
-        from rasterio.features import shapes as rasterio_shapes
-        
+        report = InferenceRunReport()
+        image_dir = image_dir or self.args.test_dir
         # 1. Parse the target date and manually specified previous date
         target_datetime = datetime.strptime(target_date, "%Y%m%d")
         prev_datetime = datetime.strptime(prev_date, "%Y%m%d")
@@ -481,7 +486,7 @@ class AnomalyDetection:
         all_images = glob.glob(os.path.join(image_dir, f"{base_filename_part}*"))
         if len(all_images) == 0:
             print("No matching image files found.")
-            return None
+            return report
         
         date_to_paths = {}
         for path in all_images:
@@ -495,19 +500,22 @@ class AnomalyDetection:
         
         if len(target_images_all) == 0:
             print(f"No images found for target date {target_date}.")
-            return None
+            return report
         if len(prev_images_all) == 0:
             print(f"No images found for previous date {prev_date}.")
-            return None
+            return report
         
         # 2. Match and collect common tiles
-        pattern_suffix = r'_VV_gamma0-rtc_db_(\d+)_(\d+)_fused\.tif$'
+        escaped_suffix = re.escape(suffix_template)
+        escaped_suffix = escaped_suffix.replace(re.escape("{row}"), r"(?P<row>\d+)")
+        escaped_suffix = escaped_suffix.replace(re.escape("{col}"), r"(?P<col>\d+)")
+        pattern_suffix = escaped_suffix + r"$"
         
         def extract_row_col(path):
             m = re.search(pattern_suffix, path)
             if m:
-                row = int(m.group(1))
-                col = int(m.group(2))
+                row = int(m.group("row"))
+                col = int(m.group("col"))
                 return row, col
             return None, None
         
@@ -516,38 +524,39 @@ class AnomalyDetection:
         for p in target_images_all:
             row, col = extract_row_col(p)
             if row is not None and col is not None:
+                if (row, col) in target_map:
+                    report.fatal_errors.append(f"duplicate_target_tile:{row},{col}")
+                    report.failed_files.extend([target_map[(row, col)], p])
+                    return report
                 target_map[(row, col)] = p
         for p in prev_images_all:
             row, col = extract_row_col(p)
             if row is not None and col is not None:
+                if (row, col) in prev_map:
+                    report.fatal_errors.append(f"duplicate_previous_tile:{row},{col}")
+                    report.failed_files.extend([prev_map[(row, col)], p])
+                    return report
                 prev_map[(row, col)] = p
         
         common_tiles = set(target_map.keys()).intersection(set(prev_map.keys()))
+        all_tiles = set(target_map.keys()).union(set(prev_map.keys()))
+        report.expected_tiles = len(all_tiles)
+        report.missing_pairs = len(all_tiles - common_tiles)
+        for tile in sorted(all_tiles - common_tiles):
+            report.failed_files.append(f"missing_pair:{tile}")
         if len(common_tiles) == 0:
             print("No common image tiles found for the target and previous dates.")
-            return None
+            return report
         
         # 3. Function: Read tiles and compute pixel loss
         def load_and_compute_pixel_loss(image_path):
             # Reads a 2-channel image, performs model inference, and obtains the pixel_loss_sum.
             try:
-                combined_image = tiff.imread(image_path)
-                if combined_image.ndim == 2:
-                    combined_image = combined_image[np.newaxis, ...]  # shape=(1,H,W)
-                elif combined_image.ndim == 3:
-                    if combined_image.shape[0] == 2:
-                        pass
-                    elif combined_image.shape[-1] == 2:
-                        combined_image = np.transpose(combined_image, (2, 0, 1))  # (H,W,2)->(2,H,W)
-                    else:
-                        raise ValueError(f"Expected 2 channels, but found {combined_image.shape[-1]} channels in {image_path}.")
-                else:
-                    raise ValueError(f"Incorrect image dimensions: {combined_image.ndim}, file: {image_path}")
-                
-                if combined_image.shape[0] != 2:
-                    raise ValueError(f"Expected 2 channels, but found {combined_image.shape[0]} channels in {image_path}.")
-                
-                img_tensor = torch.from_numpy(combined_image).float().unsqueeze(0).to(self.device)
+                img_tensor = self.sar_transform.read(image_path).unsqueeze(0).to(self.device)
+                if img_tensor.shape[-2:] != (tile_size, tile_size):
+                    raise ValueError(
+                        f"Expected tile shape {(tile_size, tile_size)}, got {tuple(img_tensor.shape[-2:])}"
+                    )
                 self.model.eval()
                 with torch.no_grad():
                     recon = self.model(img_tensor)
@@ -559,6 +568,7 @@ class AnomalyDetection:
                 return pixel_loss_sum
             except Exception as e:
                 print(f"Error processing image {image_path}: {e}")
+                LOGGER.exception("stage=large_area_inference file=%s error_type=%s", image_path, type(e).__name__)
                 return None
         
         # ========== 4. 收集并训练 GMM ==========
@@ -571,6 +581,8 @@ class AnomalyDetection:
             pl_prev = load_and_compute_pixel_loss(prev_map[(row, col)])
             if pl_target is None or pl_prev is None:
                 print(f"Skipping tile (row={row}, col={col}) because one of the images failed to process.")
+                report.failed_tiles += 1
+                report.failed_files.extend([target_map[(row, col)], prev_map[(row, col)]])
                 continue
             pixel_loss_target_dict[(row, col)] = pl_target
             pixel_loss_prev_dict[(row, col)] = pl_prev
@@ -580,7 +592,7 @@ class AnomalyDetection:
         
         if len(all_pixel_losses) == 0:
             print("No image tile data available for clustering.")
-            return None
+            return report
         
         all_pixel_losses = np.concatenate(all_pixel_losses, axis=0).reshape(-1, 1)
         
@@ -588,6 +600,12 @@ class AnomalyDetection:
         gmm.fit(all_pixel_losses)
         component_means = gmm.means_.flatten()
         anomaly_cluster = np.argmax(component_means)
+        report.detector_metadata = {
+            "detector_type": "transductive_gmm",
+            "protocol": "TRANSDUCTIVE",
+            "fit_split": "test",
+            "fit_scope": "all_common_target_and_previous_tile_pixel_errors",
+        }
         
         # 5. Apply classification on each tile and write out the results
         polygons_all = []
@@ -612,33 +630,38 @@ class AnomalyDetection:
             difference_tile = np.where((anomaly_prev == 0) & (anomaly_target == 1), 1, 0).astype(np.uint8)
             difference_tile = self._filter_small_components(difference_tile, min_size=min_size)
             
-            with rasterio.open(target_map[(row, col)]) as src_tile:
-                tile_crs = src_tile.crs
-                tile_transform = src_tile.transform
-                
-            tile_polygons = []
-            shapes_gen = rasterio_shapes(difference_tile, transform=tile_transform)
-            for geom, val in shapes_gen:
-                if val == 1:
-                    tile_polygons.append(shape(geom))
-                    
-            if len(tile_polygons) > 0:
-                tile_gdf = gpd.GeoDataFrame(geometry=tile_polygons, crs=tile_crs)
-                subfolder = os.path.join(self.args.results_path, f"{row}_{col}")
-                os.makedirs(subfolder, exist_ok=True)
-                tile_shp_path = os.path.join(subfolder, f"difference_{row}_{col}.shp")
-                tile_gdf.to_file(tile_shp_path, driver='ESRI Shapefile', encoding='utf-8')
-                polygons_all.extend(tile_polygons)
+            try:
+                tile_polygons, tile_crs = self._vectorize_difference_tile(
+                    difference_tile, target_map[(row, col)], row, col
+                )
+                if tile_polygons:
+                    polygons_all.extend(tile_polygons)
+                    report.output_tiles += 1
+                report.processed_tiles += 1
+            except Exception as exc:
+                report.failed_tiles += 1
+                report.failed_files.append(target_map[(row, col)])
+                LOGGER.exception(
+                    "stage=vectorization file=%s error_type=%s",
+                    target_map[(row, col)],
+                    type(exc).__name__,
+                )
+                continue
                 
             print(f"Completed vectorization of differences for tile row={row}, col={col}.")
         
         # 6. Merge all tile polygons and save as a single Shapefile
         if len(polygons_all) > 0:
-            gdf = gpd.GeoDataFrame(geometry=polygons_all, crs=tile_crs)
-            shp_path = os.path.join(self.args.results_path, f'anomaly_difference_{target_date}.shp')
-            gdf.to_file(shp_path, driver='ESRI Shapefile', encoding='utf-8')
-            print(f"Merged difference area Shapefile saved: {shp_path}")
+            try:
+                gdf = gpd.GeoDataFrame(geometry=polygons_all, crs=tile_crs)
+                shp_path = os.path.join(self.args.results_path, f'anomaly_difference_{target_date}.shp')
+                gdf.to_file(shp_path, driver='ESRI Shapefile', encoding='utf-8')
+                report.output_artifact = shp_path
+                print(f"Merged difference area Shapefile saved: {shp_path}")
+            except Exception as exc:
+                report.fatal_errors.append(f"merge_output:{type(exc).__name__}")
+                LOGGER.exception("stage=merge_output error_type=%s", type(exc).__name__)
         else:
             print("No polygons corresponding to anomaly areas were found in the difference map.")
         
-        return True
+        return report

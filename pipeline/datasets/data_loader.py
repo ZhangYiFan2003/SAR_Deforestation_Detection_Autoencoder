@@ -3,7 +3,7 @@ import torch
 import numpy as np
 import tifffile as tiff
 from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms
+from pipeline.transforms import SARTransform, SARTransformConfig
 
 #####################################################################################################################################################
 
@@ -11,7 +11,7 @@ class ProcessedForestDataset(Dataset):
     """
     Custom Dataset for loading preprocessed 2-channel forest images in .tif format.
     """
-    def __init__(self, root_dir, min_val=None, max_val=None, transform=None):
+    def __init__(self, root_dir, min_val=None, max_val=None, transform=None, sar_transform=None):
         """
         Args:
             root_dir (string): Root directory containing preprocessed 2-channel TIFF images.
@@ -20,8 +20,15 @@ class ProcessedForestDataset(Dataset):
             transform (callable, optional): Optional transforms to apply to the images.
         """
         self.root_dir = root_dir
-        self.min_val = min_val
-        self.max_val = max_val
+        if sar_transform is not None and (min_val is not None or max_val is not None):
+            raise ValueError("Pass sar_transform or min_val/max_val, not both")
+        if sar_transform is None:
+            config = SARTransformConfig(
+                min_value=-15.0 if min_val is None else min_val,
+                max_value=-3.0 if max_val is None else max_val,
+            )
+            sar_transform = SARTransform(config)
+        self.sar_transform = sar_transform
         self.transform = transform
         
         # List all files in the directory ending with '.tif'
@@ -44,30 +51,7 @@ class ProcessedForestDataset(Dataset):
         # Construct the full path to the image file
         img_path = os.path.join(self.root_dir, self.image_files[idx])
         
-        # Read the multi-channel TIFF image using tifffile
-        # Image shape could be (H, W, C) or (C, H, W)
-        combined_image = tiff.imread(img_path)  
-        
-        # Handle cases where the image has unexpected dimensions
-        if combined_image.ndim == 2:
-            # If the image is single-channel (H, W), add a channel dimension to make it (1, H, W)
-            combined_image = combined_image[np.newaxis, ...]  
-        
-        elif combined_image.ndim == 3:
-            if combined_image.shape[-1] == 2:
-                # If the image is in (H, W, C) format, transpose to (C, H, W)
-                combined_image = np.transpose(combined_image, (2, 0, 1))  
-        
-        # Ensure the image is in (C, H, W) format with 2 channels
-        if combined_image.shape[0] != 2:
-            raise ValueError(f"Expected 2 channels, but got {combined_image.shape[0]}")
-        
-        # Normalize the image using global min and max values
-        if self.min_val is not None and self.max_val is not None:
-            combined_image = (combined_image - self.min_val) / (self.max_val - self.min_val)
-        
-        # Convert the image to a PyTorch tensor
-        combined_image = torch.from_numpy(combined_image).float()
+        combined_image = self.sar_transform.read(img_path)
         
         # Apply optional transformations
         if self.transform:
@@ -86,36 +70,54 @@ class ProcessedForestDataLoader(object):
         Args:
             args: Command-line arguments containing batch size and CUDA information.
         """
-        kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
-        
-        self.min_train = -15
-        self.max_train = -3
-        #root_dir = '/home/yifan/Documents/data/forest/train/processed'
+        num_workers = getattr(args, 'num_workers', None)
+        if num_workers is None:
+            num_workers = 1 if args.cuda else 0
+        if num_workers < 0:
+            raise ValueError("num_workers must be >= 0")
+        pin_memory = getattr(args, 'pin_memory', None)
+        if pin_memory is None:
+            pin_memory = args.cuda
+        if getattr(args, 'non_blocking', False) and not pin_memory:
+            raise ValueError("non_blocking transfers require pin_memory=True")
+        if num_workers == 0 and getattr(args, 'persistent_workers', False):
+            raise ValueError("persistent_workers requires num_workers > 0")
+        if num_workers > 0 and getattr(args, 'prefetch_factor', 2) <= 0:
+            raise ValueError("prefetch_factor must be > 0")
+        kwargs = {'num_workers': num_workers, 'pin_memory': pin_memory}
+        if num_workers > 0:
+            kwargs['prefetch_factor'] = getattr(args, 'prefetch_factor', 2)
+            kwargs['persistent_workers'] = getattr(args, 'persistent_workers', False)
+
+        self.transform_config = SARTransformConfig(
+            min_value=getattr(args, 'min_value', -15.0),
+            max_value=getattr(args, 'max_value', -3.0),
+            clamp=getattr(args, 'clamp_input', False),
+            expected_channels=getattr(args, 'expected_channels', 2),
+        )
+        self.sar_transform = SARTransform(self.transform_config)
         #self.min_train, self.max_train = compute_percentile_min_max(root_dir=root_dir, lower_percentile=1, upper_percentile=99,batch_size=100, device='cuda' if torch.cuda.is_available() else 'cpu')
         
         # Define image transformations (currently none are applied)
-        transform = transforms.Compose([
-            #transforms.RandomHorizontalFlip(),                     # Random horizontal flip
-            #transforms.RandomVerticalFlip(),                       # Random vertical flip
-            #transforms.RandomRotation(90),                         # Random rotation by multiples of 90 degrees
-        ])
-        
+        train_dir = getattr(args, 'train_dir', None)
+        validation_dir = getattr(args, 'validation_dir', None)
+        test_dir = getattr(args, 'test_dir', None)
+        if not all((train_dir, validation_dir, test_dir)):
+            raise ValueError("train_dir, validation_dir, and test_dir must all be configured")
+
         # Create DataLoader for the training dataset
         self.train_loader = DataLoader(
-            ProcessedForestDataset(root_dir='/home/yifan/Documents/data/forest/train/processed', 
-                                    min_val=self.min_train, max_val=self.max_train, transform=transform),
+            ProcessedForestDataset(root_dir=train_dir, sar_transform=self.sar_transform),
                                     batch_size=args.batch_size, shuffle=True, **kwargs)
         
         # Create DataLoader for the validation dataset
         self.validation_loader = DataLoader(
-            ProcessedForestDataset(root_dir='/home/yifan/Documents/data/forest/validation/processed',
-                                    min_val=self.min_train, max_val=self.max_train, transform=transform),
+            ProcessedForestDataset(root_dir=validation_dir, sar_transform=self.sar_transform),
                                     batch_size=args.batch_size, shuffle=False, **kwargs)
         
         # Create DataLoader for the test dataset
         self.test_loader = DataLoader(
-            ProcessedForestDataset(root_dir='/home/yifan/Documents/data/forest/test/processed',
-                                    min_val=self.min_train, max_val=self.max_train, transform=transform),
+            ProcessedForestDataset(root_dir=test_dir, sar_transform=self.sar_transform),
                                     batch_size=args.batch_size, shuffle=False, **kwargs)
 
 #####################################################################################################################################################

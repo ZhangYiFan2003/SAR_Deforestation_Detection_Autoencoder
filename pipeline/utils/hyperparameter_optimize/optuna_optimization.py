@@ -1,50 +1,73 @@
-import torch
+"""Optuna objective with per-trial artifact isolation."""
 
-def objective(trial, args, architectures):
-    """
-    Objective function for Optuna hyperparameter optimization.
-    
-    Args:
-    - trial: An Optuna trial object for hyperparameter suggestion.
-    - args: A namespace object containing configuration and hyperparameters.
-    - architectures: A dictionary mapping model names to their corresponding architectures.
-    
-    Returns:
-    - val_loss: The validation loss obtained after training the model with suggested hyperparameters.
-    """
+import json
+import math
+from pathlib import Path
+
+import torch
+import optuna
+
+from pipeline.datasets.data_loader import ProcessedForestDataLoader
+
+
+def objective(trial, args, wrapper_class, study_root):
+    # Optuna contract: raw best validation objective selects both trial and checkpoint.
+    args.selection_strategy = "best_validation"
+    args.lr = trial.suggest_float("lr", 1e-4, 5e-4, step=1e-4)
+    args.weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-5, step=1e-6)
+    trial_root = Path(study_root) / f"trial_{trial.number:03d}"
+    args.run_id = f"{args.run_id}_trial_{trial.number:03d}"
+    args.results_path = str(trial_root)
+    args.checkpoint_dir = str(trial_root / "checkpoints")
+    args.log_dir = str(trial_root / "logs")
+    args.best_checkpoint = str(Path(args.checkpoint_dir) / "best.ckpt")
+    Path(args.checkpoint_dir).mkdir(parents=True, exist_ok=False)
+    Path(args.log_dir).mkdir(parents=True, exist_ok=False)
+    Path(trial_root, "config.json").write_text(
+        json.dumps(vars(args), indent=2, sort_keys=True), encoding="utf-8"
+    )
+
+    data = ProcessedForestDataLoader(args)
+    autoencoder = wrapper_class(args, data=data)
+    best_validation = float("inf")
     try:
-        # Suggest hyperparameters using Optuna
-        lr = trial.suggest_float('lr', 1e-4, 5e-4, step=1e-4)  
-        weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-5, step=1e-6)  
-        
-        # Update args with suggested hyperparameters
-        args.lr = lr
-        args.weight_decay = weight_decay
-        
-        # Reinitialize the model with the updated hyperparameters
-        autoenc = architectures[args.model]
-        autoenc.__init__(args)  
-        
-        # Clear unused GPU memory to avoid out-of-memory errors
-        torch.cuda.empty_cache()  
-        # Set GPU memory usage limit to 90% of the total memory
-        if torch.cuda.is_available():
-            torch.cuda.set_per_process_memory_fraction(0.9)  
-        
-        # Training loop
         for epoch in range(1, args.epochs + 1):
-            autoenc.train(epoch)
-            should_stop, val_loss = autoenc.test(epoch)
-            
-            # Check early stopping condition
-            if should_stop:
-                print("early stop triggered and stop training")
+            autoencoder.train(epoch)
+            should_stop, validation = autoencoder.test(epoch)
+            best_validation = min(best_validation, validation)
+            trial.report(best_validation, step=epoch)
+            should_prune = trial.should_prune()
+            if should_stop or should_prune:
+                if should_prune:
+                    raise optuna.TrialPruned()
                 break
-        # Return validation loss for Optuna to optimize
-        return val_loss  
-    
-    except RuntimeError as e:
-        # Handle CUDA-specific errors and re-raise other exceptions
-        if "CUDA error" in str(e):
-            print(f"CUDA error: {e}")
-        raise
+    finally:
+        autoencoder.writer.close()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    selected_checkpoint_validation = autoencoder.early_stopping.best_validation
+    if selected_checkpoint_validation is None or not math.isclose(
+        selected_checkpoint_validation, best_validation, rel_tol=1e-12, abs_tol=1e-12
+    ):
+        raise RuntimeError(
+            "Optuna objective/checkpoint metric mismatch: "
+            f"objective={best_validation}, checkpoint={selected_checkpoint_validation}"
+        )
+    if not Path(args.best_checkpoint).is_file():
+        raise RuntimeError(f"Best checkpoint was not materialized: {args.best_checkpoint}")
+
+    Path(trial_root, "metrics.json").write_text(
+        json.dumps(
+            {
+                "optimization_metric": "best_validation_objective",
+                "best_validation": best_validation,
+                "selected_checkpoint_validation": selected_checkpoint_validation,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    trial.set_user_attr("best_checkpoint", args.best_checkpoint)
+    trial.set_user_attr("best_validation", best_validation)
+    return best_validation

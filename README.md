@@ -1,84 +1,171 @@
-# SAR_Deforestation_Detection_Autoencoder
+# SAR Deforestation Detection Autoencoder
 
-This project aims to detect deforestation in SAR (Synthetic Aperture Radar) images by training an autoencoder model. The autoencoder is designed to extract essential features from multi-channel SAR data to identify signs of deforestation over time.
+## Project Overview
 
-## Current Model Architecture
-![Model Structure](https://i.imgur.com/Bt1axJU.png)
+This research project detects micro-deforestation anomalies from Sentinel-1
+Synthetic Aperture Radar (SAR) imagery with a convolutional autoencoder. Each
+model sample contains aligned VV and VH backscatter channels. The core workflow
+is:
 
-## Current Trainig Effect
-![Current Effect](https://i.imgur.com/AsMkAUt.png)
-
-## Current Detection result
-![Current Effect](https://i.imgur.com/xA5NGhi.png)
-
-## Dataset Structure
-
-The project uses a dataset comprising training, validation, and test sets. All data are SAR images captured by the Sentinel-1 satellite near the Amazon region, with each pixel representing 10 meters.
-
-- **`Training Set`**: Includes three areas, approximately 250km × 250km each, with images captured annually between **May 1 and October 1 from 2018 to 2024**. After preprocessing, all images are resized to 2 × 256 × 256 pixels, totaling about **32,000** images. The training set contains only SAR images fully covered by forests.
-- **`Validation Set`**: Includes a region adjacent to the training areas, also approximately 250km × 250km. Images are captured annually between **May 1 and October 1 from 2018 to 2024**, resized to 2 × 256 × 256 pixels, with about **8,000** images in total. Like the training set, the validation set only includes SAR images fully covered by forests.
-- **`Test Set`**: Includes a region adjacent to the validation area, approximately 250km × 250km. Images are captured between **May 1 and October 1 from 2020 to 2022**, resized to 2 × 256 × 256 pixels, totaling about **1,600** images. The test set includes SAR images with deforested areas.
-
-## Workflow
-
-### 1. Model Training and Testing
-
-The `train.py` script is the entry point for the entire training and testing process.
-
-- **Parameters**: `train.py` accepts multiple command-line arguments to configure model parameters such as batch size, number of training epochs, model selection (`AE` or `VAE`), learning rate, etc., allowing flexibility for experiments.
-    
-    Example usage:
-    
-    ```bash
-    python train.py --train --epochs 10 --batch-size 8 --model AE --dataset FOREST --lr 0.0001
-    ```
-    
-- **Optuna Optimization**: Use the `use-optuna` flag to apply Optuna for hyperparameter optimization to minimize validation loss. Without this flag, the training follows the specified parameters.
-- **Model Training**: The `train` flag loads the specified model (`AE` or `VAE`) and trains it using the corresponding architecture from `architectures.py`.
-- **Model Testing**: The `test` flag loads saved model weights for evaluation.
-
-### 2. Autoencoder Implementation
-
-The `AE.py` and `VAE.py` files implement the autoencoder models (AE and VAE), defining encoder and decoder classes.
-
-- **Encoder**: Compresses input SAR data into a low-dimensional latent space using convolutional layers, residual connections, and self-attention modules.
-- **Decoder**: Reconstructs input data from the latent space using upsampling blocks and self-attention modules for accurate reconstruction.
-- **Differences between AE and VAE**: AE uses a standard autoencoder architecture, while VAE incorporates probabilistic modeling of the latent space, defining mean and variance to represent the distribution of latent variables. Through reparameterization, VAE samples latent variables to produce more diverse reconstructions.
-
-### 3. Architectural Design
-
-The encoder and decoder are defined in `architectures.py`.
-
-- **Residual Blocks**: Use skip connections to enhance gradient flow, supporting deeper networks. These connections help prevent gradient vanishing or explosion, ensuring efficient information transfer.
-- **Self-Attention Modules**: Assign attention weights across spatial dimensions to capture global relationships, aiding in detecting significant changes indicating deforestation.
-- **Feature Pyramid Networks (FPN)**: Extract features at multiple scales, combining information at different resolutions to capture fine details and broader contextual features for improved reconstruction.
-
-### 4. Dataset Loading
-
-In `datasets.py`, custom datasets load preprocessed SAR data from `.tif` images.
-
-- **ProcessedForestDataset Class**: Loads SAR data from a specified root directory. The dataset expects input as `.tif` images with two channels, corresponding to multi-channel SAR input.
-- **DataLoader Wrapper Class**: `ProcessedForestDataLoader` wraps PyTorch DataLoader for efficient batch processing of large datasets during training, validation, and testing.
-
-### 5. Loss and Optimization
-
-- **AE Loss Function**: Uses Mean Squared Error (MSE) for reconstruction loss, comparing reconstructed outputs with original inputs to evaluate the model's learning capability.
-- **VAE Loss Function**: Combines reconstruction loss (MSE) with Kullback-Leibler Divergence (KLD) to measure the discrepancy between the latent space and a standard normal distribution. The KLD ensures that VAE learns a smooth and reasonable latent space distribution, generating more diverse samples.
-
-### Installing Required Libraries
-
-Run the following command to install all dependencies:
-
-```
-pip install -r requirements.txt
+```text
+VV/VH data preparation
+  -> autoencoder training
+  -> reconstruction error
+  -> clustering and spatial post-processing
+  -> GIS vector output and fixed-grid evaluation
 ```
 
-## How to Run the Project
+The repository is designed for a single-machine research and batch workflow. It
+does not include the original Sentinel-1 dataset and is not intended to be a
+production microservice or full MLOps platform.
 
-```
-git clone <repo-url>
-cd <repo-directory>
-python train.py --train --epochs 20 --batch-size 16
+## Historical Internship Project
+
+The original prototype was developed during an IRD internship from September
+2024 to February 2025. The preserved `report/` directory and final internship
+PDF contain historical figures, annotations, GIS artifacts, notebooks, and
+project context. They are retained as historical material and are not rewritten
+as though the later engineering work existed during the internship.
+
+## Current Architecture
+
+- `pipeline/transforms/`: one serializable `SARTransform` contract for channel
+  validation, CHW conversion, float32 conversion, normalization, and optional
+  clamping.
+- `pipeline/datasets/`: immutable raw-input preprocessing, semantic VV/VH
+  pairing, validated atomic GeoTIFF output, manifests, quarantine, datasets,
+  and configurable DataLoaders.
+- `pipeline/models/`: legacy-compatible AE/VAE wrappers and configurable
+  experimental ablations. The default AE remains the historical 512-feature,
+  tanh, p4+p3, unscaled-attention baseline.
+- `pipeline/anomaly_detection/`: reconstruction-error analysis, explicit
+  transductive/inductive detector metadata, GIS vectorization, and inference
+  completeness reports.
+- `pipeline/evaluation/`: prediction-independent `EvaluationGrid`, raster
+  alignment, and TP/FP/FN/TN, precision, recall, F1, and IoU calculation.
+- `pipeline/experiments/`: isolated run directories, resolved configuration,
+  runtime metadata, checkpoints, logs, and metrics.
+- `tests/`: CPU unit, integration, production-wiring, and adversarial regression
+  tests using small synthetic GeoTIFF fixtures.
+
+## 2026 Engineering Refactor
+
+The early research prototype was audited again in 2026. This later refactor
+focused on engineering correctness and reproducibility rather than changing the
+historical experimental claims. It introduced:
+
+- consistent training and inference preprocessing;
+- a fixed evaluation universe that cannot be selected by prediction extent;
+- semantic one-to-one VV/VH pairing instead of positional `zip`;
+- immutable raw data, recoverable rejection, manifests, and atomic outputs;
+- explicit SUCCESS/PARTIAL/FAILED inference completeness;
+- isolated run and Optuna trial artifacts;
+- structured recovery checkpoints with legacy bare-state-dict compatibility;
+- deterministic seed controls, metadata, logging, lightweight profiling;
+- CPU automated tests and GitHub Actions CI.
+
+Experimental decoder activation, FPN skip, attention, and inductive detector
+variants remain opt-in. They are not enabled by default and no performance
+improvement is claimed without a real-data ablation.
+
+## Historical Results
+
+The final internship report recorded the following values:
+
+| Metric | Historical report value |
+|---|---:|
+| Precision | 0.8284 |
+| Recall | 0.6865 |
+| F1 | 0.7508 |
+| IoU | 0.6011 |
+
+These are values recorded in the historical final internship report. They are
+not a current verified benchmark. The repository does not contain all original
+data and checkpoints required to reproduce these exact historical metrics, and
+the corrected fixed-grid evaluation may produce different results when the
+original artifacts become available.
+
+## Installation
+
+Python 3.11 is used by CI. A CPU-oriented development installation is:
+
+```bash
+python -m venv .venv
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt -r requirements-test.txt
 ```
 
-## Future Improvements
+For a CPU-only PyTorch wheel, install PyTorch from its CPU index before the
+requirements command, as shown in `.github/workflows/ci.yml`.
+
+Geospatial Python packages may require platform-specific binary wheels. The
+versions in `requirements.txt` match the tested project environment; they were
+not broadly upgraded as part of finalization.
+
+## Usage
+
+Inspect the actual training/testing contract:
+
+```bash
+python train.py --help
+```
+
+Training and testing require local directories of aligned two-channel
+GeoTIFFs. Testing an existing model requires an explicit checkpoint:
+
+```bash
+python train.py --test --checkpoint path/to/checkpoint.ckpt --no-cuda
+```
+
+The fixed-grid vector evaluation entry is:
+
+```bash
+python scripts/evaluate.py --help
+python scripts/evaluate.py --config evaluation.json --output metrics.json
+```
+
+`evaluation.json` declares the CRS, AOI bounds, resolution, and paths to ground
+truth, prediction, and an optional forest mask. See
+`docs/refactoring/07-post-refactor-verification.md` and the evaluation tests for
+the exact contract.
+
+## Testing
+
+Run the complete CPU suite with:
+
+```bash
+python -m pytest -q
+```
+
+The repository includes unit, integration, production-wiring, and adversarial
+regression tests. The exact test count may grow; the finalization pass completed
+with 89 passing tests. CI also compiles the executable Python tree before
+running the suite.
+
+## Repository Layout
+
+```text
+config/                         CLI configuration
+pipeline/                       data, models, training, inference, evaluation
+scripts/                        evaluation and experiment entry points
+tests/                          CPU automated tests
+docs/interview-preparation/     audited project explanations
+docs/refactoring/               refactor, migration, and verification records
+report/                         preserved historical internship artifacts
+.github/workflows/ci.yml        fresh-checkout CPU CI
+train.py                        main train/test entry
+```
+
+## Repository Limitations
+
+- The real Sentinel-1 training, validation, and test datasets are not included.
+- The historical trained checkpoint may not be available.
+- Upstream CuSum/pyroSAR preprocessing remains external to the tested CLI
+  workflow; its historical notebook contains workstation-specific paths.
+- Historical metrics cannot currently be reproduced end to end.
+- CUDA throughput, pinned-memory overlap, and GPU memory behavior require
+  hardware-specific profiling and are not claimed by the CPU tests.
+
+The post-refactor evidence and remaining gaps are documented in
+`docs/refactoring/07-post-refactor-verification.md` and
+`docs/refactoring/08-test-gap-analysis.md`.

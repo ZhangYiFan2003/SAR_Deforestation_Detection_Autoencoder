@@ -1,4 +1,3 @@
-from torch.utils.tensorboard import SummaryWriter
 from pipeline.anomaly_detection.plot_histogram import Plot
 from pipeline.anomaly_detection.anomaly_detection import AnomalyDetection
 
@@ -23,4 +22,4 @@ class AnomalyDetectionPipeline(AnomalyDetection,Plot):
         self.test_loader = test_loader
         self.device = device
         self.args = args
-        self.writer = SummaryWriter(log_dir=args.results_path + '/logs')
+        self.sar_transform = test_loader.dataset.sar_transform

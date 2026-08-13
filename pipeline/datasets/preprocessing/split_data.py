@@ -1,8 +1,74 @@
-import os
+"""Fuse semantically paired VV/VH images and write validated tiles atomically."""
+
+import hashlib
+import json
+import logging
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
 import rasterio
 from rasterio.windows import Window
 from rasterio.windows import transform as window_transform
-import numpy as np
+
+from .atomic_output import atomic_write_bytes, atomic_write_geotiff, validate_geotiff
+from .manifest import ManifestRecord, ManifestWriter
+from .pairing import PairingError, pair_vv_vh_files
+
+
+LOGGER = logging.getLogger(__name__)
+
+
+def _checksum(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _reject(
+    rejected_dir: Path,
+    manifest: ManifestWriter,
+    *,
+    sample_id: str,
+    vv_path: Path,
+    vh_path: Path,
+    reason: str,
+    status: str = "REJECTED",
+    shape=None,
+) -> None:
+    rejected_dir.mkdir(parents=True, exist_ok=True)
+    marker = rejected_dir / f"{sample_id}.json"
+    atomic_write_bytes(
+        marker,
+        json.dumps(
+            {
+                "sample_id": sample_id,
+                "source_vv": str(vv_path),
+                "source_vh": str(vh_path),
+                "reason": reason,
+                "raw_inputs_modified": False,
+            },
+            indent=2,
+        ).encode("utf-8"),
+    )
+    try:
+        manifest.append(
+            ManifestRecord(
+                sample_id=sample_id,
+                source_vv=str(vv_path),
+                source_vh=str(vh_path),
+                output_file=None,
+                status=status,
+                reject_reason=reason,
+                shape=shape,
+            )
+        )
+    except Exception:
+        marker.unlink(missing_ok=True)
+        raise
+
 
 def fuse_and_split_images(
     vv_dir,
@@ -10,127 +76,164 @@ def fuse_and_split_images(
     fused_dir,
     tiles_dir,
     tile_size=256,
-    prefix_fused="fused",
-    prefix_tile="tile"
+    prefix_fused="",
+    prefix_tile="",
+    *,
+    rejected_dir=None,
+    manifest_path=None,
 ):
-    """
-    Fuse VV and VH images into a multi-band GeoTIFF, then split the fused large image into complete georeferenced tiles (only saving 256x256 tiles).
-    
-    :param vv_dir:       Directory containing VV images
-    :param vh_dir:       Directory containing VH images
-    :param fused_dir:    Output directory for the fused images
-    :param tiles_dir:    Output directory for the split tiles
-    :param tile_size:    Tile size in pixels, default is 256
-    :param prefix_fused: Prefix for the fused files, default is "fused"
-    :param prefix_tile:  Prefix for the tile files, default is "tile"
-    """
-    
-    os.makedirs(fused_dir, exist_ok=True)
-    os.makedirs(tiles_dir, exist_ok=True)
-    
-    # Retrieve all TIFF files in the VV and VH directories
-    vv_files = sorted([f for f in os.listdir(vv_dir) if f.endswith('.tif')])
-    vh_files = sorted([f for f in os.listdir(vh_dir) if f.endswith('.tif')])
-    
-    assert len(vv_files) == len(vh_files), "The number of files in the VV and VH directories do not match"
-    
-    for vv_file, vh_file in zip(vv_files, vh_files):
-        vv_path = os.path.join(vv_dir, vv_file)
-        vh_path = os.path.join(vh_dir, vh_file)
-        
-        # Filename for the fused image
-        fused_filename = f"{os.path.splitext(vv_file)[0]}.tif"
-        fused_path = os.path.join(fused_dir, fused_filename)
-        
-        # Check if the fusion has already been done to avoid duplication
-        if not os.path.exists(fused_path):
-            with rasterio.open(vv_path) as vv_src, rasterio.open(vh_path) as vh_src:
-                # Check if CRS and transform are consistent
-                if (vv_src.crs != vh_src.crs) or (vv_src.transform != vh_src.transform):
-                    raise ValueError(f"The CRS or Transform of files {vv_file} and {vh_file} are inconsistent")
-                
-                # Check if dimensions are consistent
-                if (vv_src.width != vh_src.width) or (vv_src.height != vh_src.height):
-                    raise ValueError(f"The sizes of files {vv_file} and {vh_file} do not match")
-                
-                # Read VV and VH data (assuming single band for each)
-                vv_data = vv_src.read(1)  
-                vh_data = vh_src.read(1)  
-                
-                # Stack into 2 bands
-                fused_data = np.stack([vv_data, vh_data], axis=0)
-                
-                # Define output metadata
-                fused_meta = vv_src.meta.copy()
-                fused_meta.update({
-                    'count': 2,  # Two bands
-                    'dtype': fused_data.dtype
-                })
-                
-                # Write the fused multi-band GeoTIFF
-                with rasterio.open(fused_path, 'w', **fused_meta) as dst:
-                    dst.write(fused_data)
-                
-                print(f"Fused and saved: {fused_path}")
-        else:
-            print(f"Fused file already exists: {fused_path}")
-        
-        # Split the fused image into tiles
-        with rasterio.open(fused_path) as fused_src:
-            src_transform = fused_src.transform
-            src_crs = fused_src.crs
-            src_width = fused_src.width
-            src_height = fused_src.height
-            band_count = fused_src.count  # Should be 2
-            
-            # Calculate the number of complete tiles
-            num_tiles_row = src_height // tile_size
-            num_tiles_col = src_width // tile_size
-            
-            for tile_row in range(num_tiles_row):
-                for tile_col in range(num_tiles_col):
-                    row_off = tile_row * tile_size
-                    col_off = tile_col * tile_size
-                    
-                    window = Window(
-                        col_off=col_off,
-                        row_off=row_off,
-                        width=tile_size,
-                        height=tile_size
-                    )
-                    
-                    # Calculate the affine transform for this tile
-                    tile_transform = window_transform(window, src_transform)
-                    
-                    # Read data for the tile
-                    tile_data = fused_src.read(
-                        indexes=list(range(1, band_count + 1)),
-                        window=window
-                    )
-                    
-                    # Define the tile filename
-                    tile_filename = f"{os.path.splitext(fused_filename)[0]}_{row_off}_{col_off}_fused.tif"
-                    tile_path = os.path.join(tiles_dir, tile_filename)
-                    
-                    # Define tile metadata
-                    tile_meta = fused_src.meta.copy()
-                    tile_meta.update({
-                        'height': tile_size,
-                        'width': tile_size,
-                        'transform': tile_transform
-                    })
-                    
-                    # Write the tile
-                    with rasterio.open(tile_path, 'w', **tile_meta) as dst:
-                        dst.write(tile_data)
-                    
-                    print(f"Tile split and saved: {tile_path}")
-    
-    print("All images have been successfully fused and split into tiles.")
+    """Process immutable raw inputs into reproducible fused/tiled outputs.
 
-if __name__ == "__main__":
-    vv_dir = '/home/yifan/Documents/data/forest/test/VV'
-    vh_dir = '/home/yifan/Documents/data/forest/test/VH'
-    fused_dir = '/home/yifan/Documents/data/forest/test/fused'
-    tiles_dir = '/home/yifan/Documents/data/forest/test/processed'
-    fuse_and_split_images(vv_dir, vh_dir, fused_dir, tiles_dir, tile_size=256, prefix_fused="fused", prefix_tile="tile")
+    Rejected samples are represented by recoverable reason records; raw inputs
+    are never deleted or moved.
+    """
+    vv_dir, vh_dir = Path(vv_dir), Path(vh_dir)
+    fused_dir, tiles_dir = Path(fused_dir), Path(tiles_dir)
+    rejected_dir = Path(rejected_dir or tiles_dir.parent / "rejected")
+    manifest = ManifestWriter(Path(manifest_path or tiles_dir.parent / "manifest.jsonl"))
+    fused_dir.mkdir(parents=True, exist_ok=True)
+    tiles_dir.mkdir(parents=True, exist_ok=True)
+
+    vv_files = sorted(vv_dir.glob("*.tif"))
+    vh_files = sorted(vh_dir.glob("*.tif"))
+    try:
+        pairs = pair_vv_vh_files(vv_files, vh_files)
+    except PairingError as exc:
+        manifest.append(
+            ManifestRecord(
+                sample_id="pairing",
+                source_vv=str(vv_dir),
+                source_vh=str(vh_dir),
+                output_file=None,
+                status="FAILED",
+                reject_reason=f"pairing_error:{exc}",
+            )
+        )
+        raise
+
+    for key, vv_path, vh_path in pairs:
+        sample_id = f"{key.region}_{key.acquisition}_{key.tile}"
+        fused_filename = f"{prefix_fused + '_' if prefix_fused else ''}{vv_path.stem}.tif"
+        fused_path = fused_dir / fused_filename
+        stage = "decode"
+        try:
+            with rasterio.open(vv_path) as vv_src, rasterio.open(vh_path) as vh_src:
+                if vv_src.crs != vh_src.crs or vv_src.transform != vh_src.transform:
+                    _reject(
+                        rejected_dir,
+                        manifest,
+                        sample_id=sample_id,
+                        vv_path=vv_path,
+                        vh_path=vh_path,
+                        reason="alignment_error",
+                    )
+                    continue
+                if (vv_src.width, vv_src.height) != (vh_src.width, vh_src.height):
+                    _reject(
+                        rejected_dir,
+                        manifest,
+                        sample_id=sample_id,
+                        vv_path=vv_path,
+                        vh_path=vh_path,
+                        reason="shape_error",
+                    )
+                    continue
+                vv_data, vh_data = vv_src.read(1), vh_src.read(1)
+                fused_data = np.stack([vv_data, vh_data], axis=0)
+                if np.isnan(fused_data).any():
+                    _reject(
+                        rejected_dir,
+                        manifest,
+                        sample_id=sample_id,
+                        vv_path=vv_path,
+                        vh_path=vh_path,
+                        reason="nan",
+                        shape=fused_data.shape,
+                    )
+                    continue
+                if not np.any(fused_data):
+                    _reject(
+                        rejected_dir,
+                        manifest,
+                        sample_id=sample_id,
+                        vv_path=vv_path,
+                        vh_path=vh_path,
+                        reason="all_zero",
+                        shape=fused_data.shape,
+                    )
+                    continue
+                fused_meta = vv_src.meta.copy()
+                fused_meta.update(count=2, dtype=fused_data.dtype)
+                stage = "write"
+                if not validate_geotiff(
+                    fused_path,
+                    expected_shape=(vv_src.height, vv_src.width),
+                    expected_channels=2,
+                ):
+                    atomic_write_geotiff(fused_path, fused_data, fused_meta)
+        except Exception as exc:
+            LOGGER.exception("Failed during %s stage for sample %s", stage, sample_id)
+            _reject(
+                rejected_dir,
+                manifest,
+                sample_id=sample_id,
+                vv_path=vv_path,
+                vh_path=vh_path,
+                reason=f"{stage}_error:{type(exc).__name__}",
+                status="FAILED",
+            )
+            continue
+
+        with rasterio.open(fused_path) as fused_src:
+            rows = fused_src.height // tile_size
+            columns = fused_src.width // tile_size
+            for tile_row in range(rows):
+                for tile_col in range(columns):
+                    row_off, col_off = tile_row * tile_size, tile_col * tile_size
+                    window = Window(col_off, row_off, tile_size, tile_size)
+                    tile_data = fused_src.read(window=window)
+                    tile_name = (
+                        f"{prefix_tile + '_' if prefix_tile else ''}"
+                        f"{vv_path.stem}_{row_off}_{col_off}_fused.tif"
+                    )
+                    tile_path = tiles_dir / tile_name
+                    tile_meta = fused_src.meta.copy()
+                    tile_meta.update(
+                        height=tile_size,
+                        width=tile_size,
+                        transform=window_transform(window, fused_src.transform),
+                    )
+                    tile_sample_id = f"{sample_id}_{row_off}_{col_off}"
+                    try:
+                        if not validate_geotiff(
+                            tile_path,
+                            expected_shape=(tile_size, tile_size),
+                            expected_channels=2,
+                        ):
+                            atomic_write_geotiff(tile_path, tile_data, tile_meta)
+                        manifest.append(
+                            ManifestRecord(
+                                sample_id=tile_sample_id,
+                                source_vv=str(vv_path),
+                                source_vh=str(vh_path),
+                                output_file=str(tile_path),
+                                status="SUCCESS",
+                                reject_reason=None,
+                                shape=tile_data.shape,
+                                checksum=_checksum(tile_path),
+                            )
+                        )
+                    except Exception as exc:
+                        manifest.append(
+                            ManifestRecord(
+                                sample_id=tile_sample_id,
+                                source_vv=str(vv_path),
+                                source_vh=str(vh_path),
+                                output_file=str(tile_path) if tile_path.exists() else None,
+                                status="FAILED",
+                                reject_reason=f"write_error:{type(exc).__name__}",
+                                shape=tile_data.shape,
+                            )
+                        )
+                        raise
+    return Path(manifest.path)

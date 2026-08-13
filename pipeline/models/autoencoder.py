@@ -9,6 +9,7 @@ sys.path.append('../')
 from pipeline.models.architectures import Encoder, Decoder
 from pipeline.datasets.data_loader import ProcessedForestDataLoader
 from pipeline.utils.early_stop.early_stopping import EarlyStopping
+from pipeline.utils.profiling import StepProfiler
 
 #####################################################################################################################################################
 
@@ -16,8 +17,13 @@ class AE_Network(nn.Module):
     def __init__(self, args):
         super(AE_Network, self).__init__()
         output_size = 512  # Intermediate feature size
-        self.encoder = Encoder(output_size)
-        self.decoder = Decoder(output_size)
+        self.encoder = Encoder(output_size, attention_variant=args.attention_variant)
+        self.decoder = Decoder(
+            output_size,
+            output_activation=args.output_activation,
+            fpn_skips=args.fpn_skips,
+            attention_variant=args.attention_variant,
+        )
     
     def encode(self, x):
         # Get encoder output and skip connection features
@@ -36,10 +42,12 @@ class AE_Network(nn.Module):
 #####################################################################################################################################################
 
 class AE(object):
-    def __init__(self, args):
+    def __init__(self, args, data=None):
         self.args = args
         self.device = torch.device("cuda" if args.cuda else "cpu")
-        self._init_dataset()
+        self.data = data
+        if self.data is None:
+            self._init_dataset()
         self.train_loader = self.data.train_loader
         self.validation_loader = self.data.validation_loader
         self.test_loader = self.data.test_loader
@@ -51,9 +59,22 @@ class AE(object):
         # Learning rate scheduler to adjust learning rate at regular intervals
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=args.step_size, gamma=args.gamma)
         # EarlyStopping to halt training when validation performance stops improving
-        self.early_stopping = EarlyStopping(patience=args.patience, delta=args.delta, path=args.results_path + '/best_model.pth')
+        self.early_stopping = EarlyStopping(
+            patience=args.patience,
+            delta=args.delta,
+            path=args.best_checkpoint,
+            strategy=args.selection_strategy,
+            checkpoint_metadata={
+                'optimizer': self.optimizer,
+                'scheduler': self.scheduler,
+                'resolved_config': vars(args),
+                'preprocessing_config': self.data.transform_config.to_dict(),
+                'seed_info': {'python': args.seed, 'numpy': args.seed, 'torch': args.seed},
+            },
+        )
         # TensorBoard SummaryWriter for logging metrics and visualizations
-        self.writer = SummaryWriter(log_dir=args.results_path + '/logs')
+        self.writer = SummaryWriter(log_dir=args.log_dir)
+        self.profiler = StepProfiler(enabled=args.profile)
 
 #####################################################################################################################################################
 
@@ -105,26 +126,44 @@ class AE(object):
         """
         self.model.train()
         train_loss = 0
-        for batch_idx, data in enumerate(self.train_loader):
+        iterator = iter(self.train_loader)
+        batch_idx = 0
+        while True:
+            started = self.profiler.start()
+            try:
+                data = next(iterator)
+            except StopIteration:
+                break
+            self.profiler.add('data_wait_seconds', started)
+            self.profiler.samples += len(data)
             # Move data to the selected device
-            data = data.to(self.device)
+            started = self.profiler.start()
+            data = data.to(self.device, non_blocking=self.args.non_blocking)
+            self.profiler.add('h2d_seconds', started)
             # Reset gradients
             self.optimizer.zero_grad()
             # Forward pass
+            started = self.profiler.start()
             recon_batch = self.model(data)
+            self.profiler.add('forward_seconds', started)
             # Compute loss
             loss = self.loss_function(recon_batch, data)
             # Backward pass
+            started = self.profiler.start()
             loss.backward()
+            self.profiler.add('backward_seconds', started)
             # Accumulate total loss
             train_loss += loss.item()
             # Update weights
+            started = self.profiler.start()
             self.optimizer.step()
+            self.profiler.add('optimizer_seconds', started)
             
             # Log progress for every few batches
             if batch_idx % self.args.log_interval == 0:
                 print(f'Train Epoch: {epoch} [{batch_idx * len(data)}/{len(self.train_loader.dataset)} '
                       f'({100. * batch_idx / len(self.train_loader):.0f}%)]\tLoss: {loss.item() / len(data):.6f}')
+            batch_idx += 1
         
         # Calculate and log average training loss for the epoch
         avg_loss = train_loss / len(self.train_loader.dataset)
@@ -150,7 +189,7 @@ class AE(object):
         # Disable gradient computation
         with torch.no_grad():
             for data in self.validation_loader:
-                data = data.to(self.device)
+                data = data.to(self.device, non_blocking=self.args.non_blocking)
                 recon_batch = self.model(data)
                 validation_loss += self.loss_function(recon_batch, data).item()
         
@@ -163,7 +202,7 @@ class AE(object):
         self.writer.flush()
         
         # Check if early stopping condition is met
-        self.early_stopping(avg_validation_loss, self.model)
+        self.early_stopping(avg_validation_loss, self.model, epoch=epoch)
         if self.early_stopping.early_stop:
             print("Early stopping")
             return True, avg_validation_loss

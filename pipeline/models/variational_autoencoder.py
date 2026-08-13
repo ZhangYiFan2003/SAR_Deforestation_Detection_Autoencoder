@@ -9,6 +9,7 @@ sys.path.append('../')
 from pipeline.models.architectures import Encoder, Decoder
 from pipeline.datasets.data_loader import ProcessedForestDataLoader
 from pipeline.utils.early_stop.early_stopping import EarlyStopping
+from pipeline.utils.profiling import StepProfiler
 
 #####################################################################################################################################################
 
@@ -18,14 +19,19 @@ class VAE_Network(nn.Module):
         # Dimension of intermediate features
         output_size = 512  
         # Initialize the encoder model
-        self.encoder = Encoder(output_size) 
+        self.encoder = Encoder(output_size, attention_variant=args.attention_variant)
         
         # Define layers to map encoder output to latent space parameters (mean and variance)
         self.fc_mu = nn.Linear(output_size, args.embedding_size)
         self.fc_var = nn.Linear(output_size, args.embedding_size)
         
         # Initialize the decoder model
-        self.decoder = Decoder(args.embedding_size)
+        self.decoder = Decoder(
+            args.embedding_size,
+            output_activation=args.output_activation,
+            fpn_skips=args.fpn_skips,
+            attention_variant=args.attention_variant,
+        )
     
     def encode(self, x):
         # Obtain encoder outputs and skip-connection features
@@ -57,10 +63,12 @@ class VAE_Network(nn.Module):
 #####################################################################################################################################################
 
 class VAE(object):
-    def __init__(self, args):
+    def __init__(self, args, data=None):
         self.args = args
         self.device = torch.device("cuda" if args.cuda else "cpu")
-        self._init_dataset()
+        self.data = data
+        if self.data is None:
+            self._init_dataset()
         self.train_loader = self.data.train_loader
         self.validation_loader = self.data.validation_loader
         self.test_loader = self.data.test_loader
@@ -72,9 +80,22 @@ class VAE(object):
         # Learning rate scheduler to adjust learning rate at regular intervals
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=args.step_size, gamma=args.gamma)
         # EarlyStopping to halt training when validation performance stops improving
-        self.early_stopping = EarlyStopping(patience=args.patience, delta=args.delta, path=args.results_path + '/best_model.pth')
+        self.early_stopping = EarlyStopping(
+            patience=args.patience,
+            delta=args.delta,
+            path=args.best_checkpoint,
+            strategy=args.selection_strategy,
+            checkpoint_metadata={
+                'optimizer': self.optimizer,
+                'scheduler': self.scheduler,
+                'resolved_config': vars(args),
+                'preprocessing_config': self.data.transform_config.to_dict(),
+                'seed_info': {'python': args.seed, 'numpy': args.seed, 'torch': args.seed},
+            },
+        )
         # TensorBoard SummaryWriter for logging metrics and visualizations
-        self.writer = SummaryWriter(log_dir=args.results_path + '/logs')
+        self.writer = SummaryWriter(log_dir=args.log_dir)
+        self.profiler = StepProfiler(enabled=args.profile)
 
 #####################################################################################################################################################
 
@@ -140,29 +161,47 @@ class VAE(object):
         #beta = min(1.0, epoch / total_epochs)  
         beta = 10000000.0
         
-        for batch_idx, data in enumerate(self.train_loader):
-            data = data.to(self.device)
+        iterator = iter(self.train_loader)
+        batch_idx = 0
+        while True:
+            started = self.profiler.start()
+            try:
+                data = next(iterator)
+            except StopIteration:
+                break
+            self.profiler.add('data_wait_seconds', started)
+            self.profiler.samples += len(data)
+            started = self.profiler.start()
+            data = data.to(self.device, non_blocking=self.args.non_blocking)
+            self.profiler.add('h2d_seconds', started)
             # Clear gradients
             self.optimizer.zero_grad()
             
             # Forward pass
+            started = self.profiler.start()
             recon_batch, mu, logvar = self.model(data)
+            self.profiler.add('forward_seconds', started)
             loss, recon_loss, kld_loss = self.loss_function(recon_batch, data, mu, logvar, beta=beta)
             
             # Backpropagation
+            started = self.profiler.start()
             loss.backward()
+            self.profiler.add('backward_seconds', started)
             train_loss += loss.item()
             train_recon_loss += recon_loss.item()
             train_kld_loss += kld_loss.item()
             
             # Update weights
+            started = self.profiler.start()
             self.optimizer.step()
+            self.profiler.add('optimizer_seconds', started)
             
             # Log training progress at intervals
             if batch_idx % self.args.log_interval == 0:
                 print(f'Train Epoch: {epoch} [{batch_idx * len(data)}/{len(self.train_loader.dataset)} '
                     f'({100. * batch_idx / len(self.train_loader):.0f}%)]\tLoss: {loss.item() / len(data):.6f}\t'
                     f'Recon: {recon_loss.item() / len(data):.6f}\tKLD: {kld_loss.item() / len(data):.6f}')
+            batch_idx += 1
         
         avg_loss = train_loss / len(self.train_loader.dataset)
         avg_mse_loss = train_recon_loss / len(self.train_loader.dataset)
@@ -186,7 +225,7 @@ class VAE(object):
         
         with torch.no_grad():
             for data in self.validation_loader:
-                data = data.to(self.device)
+                data = data.to(self.device, non_blocking=self.args.non_blocking)
                 recon_batch, mu, logvar = self.model(data)
                 loss, recon_loss, kld_loss = self.loss_function(recon_batch, data, mu, logvar)
                 test_loss += loss.item()
@@ -206,10 +245,10 @@ class VAE(object):
         self.writer.add_scalar('Loss/validation/kld', avg_kld_loss, epoch)
         
         # Use EarlyStopping to monitor validation loss
-        self.early_stopping(avg_loss, self.model)
+        self.early_stopping(avg_loss, self.model, epoch=epoch)
         
         # Stop training if early stopping condition is met
         if self.early_stopping.early_stop:
             print("Early stopping")
-            return True, avg_recon_loss
-        return False, avg_recon_loss
+            return True, avg_loss
+        return False, avg_loss
